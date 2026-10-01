@@ -6,9 +6,22 @@
 --    สแกนไข่ตามที่ติ๊ก → บินไปยืนข้างไข่ → เก็บเข้ามือ (นับรอบ 15 วิ)
 --    → ตรวจว่าเข้ามือจริง → บินกลับแปลง → วางไข่ → วนลูป
 --
--- ❌ ยังไม่ทำใน v1 (ตามที่ตกลงไว้)
---    · Volcanic : ทัวร์ประตู / บัฟ Scorching / เส้นทางออกถ้ำ 32 จุด
---    · ดรอปลาวา (20 เข็ม) / ระบบแจ้งเตือน / ระบบเซฟไฟล์
+-- ❌ ยังไม่ทำใน v1
+--    · ระบบเซฟไฟล์ (save/load ค่าตั้ง)
+--
+-- ✅ เพิ่มรอบนี้ (ย้ายจากระบบ 2 — ไม่แตะลอจิกฟาร์มเดิม)
+--    · 🔔 แจ้งเตือนเสียง + ป๊อปอัป (Volcanic / Cherub / Solaris)
+--      — แสดง 1 นาทีแล้วปิดเองอัตโนมัติ · ข้ามไข่ที่ติ๊ก "ฟาร์มออโต้" ไว้
+--    · 👁️ ESP 2 ส่วน : ไข่ที่แตะเลือก/อยู่ในคิว (ปุ่มเปิด/ปิดเอง) + 👑 Giant โชว์ตลอดเวลา
+--    · 👑 ปุ่มไปเก็บ Giant Egg (ไม่เจอชื่อ = ใช้ไข่ใหญ่ที่สุดในแมพ) — grabAndReturn ชุดเดียวกับลูป
+--    · 🎯 ปุ่มวาร์ปไปฟาร์มไข่ที่เลือก (แยกจากปุ่มฟาร์มออโต้)
+--    · 🔄 ปุ่มเปิด/ปิด ฟาร์มออโต้ ข้างปุ่ม ⚡ เริ่มฟาร์ม
+--    · 👀 View : แตะเลือกไข่แล้วกดดูข้อมูลได้เลย (แยกจากการกดค้างใส่คิว)
+--    · 📜 Log ลงไฟล์ EGG_LITE_LOG.txt ทุกเหตุการณ์ + เวลา / หน้าจอโชว์เฉพาะบั๊ก
+--    · 🔧 แก้บั๊กวาร์ปไปแล้วไม่เจอไข่ (instance สด + ยืนยันระยะ + วาร์ปซ้ำ 3 รอบ)
+--    · 📱 หน้าต่างย่อ/ขยายตามเมนูที่เปิดอยู่จริง (reflow) + ตารางปุ่มจัดกลุ่มใหม่
+--    · 🎮 ระบบภาพกาก (Boost FPS) ย้ายจาก 2.lua → เป็นปุ่มวน 3 ระดับ
+--      (ปิด → 1 เบา → 2 กลาง → 3 กากสุด) · คุ้มกัน UI/ESP/ไข่ไม่ให้โดนลดคุณภาพ
 --
 -- ⛔ ไม่ยิง remote "TeleportToPlot" เด็ดขาด
 --    (ตามคำสั่ง — กันอาการ "Can't Teleport While Carrying Eggs")
@@ -227,6 +240,10 @@ local isGrabbing  = false
 local homeCFrame  = nil
 local dipEnabled  = false    -- 🌋 สวิตช์ดรอปลาวา (กดปุ่มบนหน้าต่าง)
 local dipRunning  = false    -- กันรันซ้อนระหว่างรอบดรอป
+local currentTargetEgg = nil -- 🎯 เป้าหมายจาก "การแตะ" (แบบไฟล์ 2) — ไม่กระทบคิวฟาร์ม
+local espEnabled       = true  -- 👁️ สวิตช์ ESP ปกติ (ปุ่ม 👁️) — Giant โชว์ตลอดไม่ว่าเปิด/ปิด
+local notifyOn         = false -- 🔔 สวิตช์แจ้งเตือนเสียง (ปุ่ม 🔔)
+local autoFarmOn       = false -- 🔄 สวิตช์ "ฟาร์มออโต้" (ปุ่มข้าง ⚡) — เปิด = ฟาร์มต่อเนื่องไม่หยุดเอง
 
 -- ============================================================
 -- ส่วนที่ 1 : หน้าต่าง
@@ -236,7 +253,7 @@ local sg = mk("ScreenGui", {
     ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 }, parentGui)
 
-local W, H = 340, 558   -- สูงขึ้น 16px = ให้ "2 แถวแรกของตารางไข่" โชว์เต็มใบ (เดิม 542 ตัดแถวล่าง)
+local W, H = 340, 694   -- ความสูงเริ่มต้น (ทุกส่วนกางอยู่) — ใช้ reflow() ย่อ/ขยายตามเมนูที่เปิดจริง
 local minimized = false          -- ประกาศไว้ตรงนี้ (ระบบ fit จอต้องใช้)
 local win = mk("Frame", {
     Size = UDim2.new(0, W, 0, H), Position = UDim2.new(0, 44, 0, 130),
@@ -246,6 +263,45 @@ local win = mk("Frame", {
 }, sg)
 mk("UICorner", { CornerRadius = UDim.new(0, 12) }, win)
 mk("UIStroke", { Color = C.Stroke, Thickness = 1.3, Transparency = 0.25 }, win)
+
+-- ============================================================
+-- 🔔 แจ้งเตือนเสียง + ป๊อปอัป (ย้ายมาจากระบบ 2 ทั้งชุด)
+--    · เสียงลูปจนกว่าจะกด "รับทราบ" หรือกดปุ่ม 🔔 ปิด
+--    · แจ้งเฉพาะ Volcanic / Cherub / Solaris ที่เกิดจริงในแมพ
+-- ============================================================
+local alertSound = mk("Sound", {
+    SoundId = "rbxassetid://124788478819228", Looped = true, Volume = 2,
+}, sg)
+
+local popupFrame = mk("Frame", {
+    Size = UDim2.new(0, 280, 0, 140), Position = UDim2.new(0.5, -140, 0.5, -70),
+    BackgroundColor3 = Color3.fromRGB(40, 45, 60), BorderSizePixel = 0,
+    Visible = false, ZIndex = 50,
+}, sg)
+mk("UICorner", { CornerRadius = UDim.new(0, 10) }, popupFrame)
+local popupStroke = mk("UIStroke", { Color = C.Red, Thickness = 2 }, popupFrame)
+local popupScale = mk("UIScale", { Scale = 1 }, popupFrame)
+
+local popupTitle = mk("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 35), BackgroundTransparency = 1,
+    Text = "⚠️ ระบบแจ้งเตือน ⚠️", TextColor3 = Color3.fromRGB(255, 100, 100),
+    Font = Enum.Font.GothamBold, TextSize = 16, ZIndex = 51,
+}, popupFrame)
+
+local popupMsg = mk("TextLabel", {
+    Size = UDim2.new(1, -20, 0, 50), Position = UDim2.new(0, 10, 0, 35),
+    BackgroundTransparency = 1, Text = "พบไข่เป้าหมายแล้ว!",
+    TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.Gotham, TextSize = 14,
+    TextWrapped = true, ZIndex = 51,
+}, popupFrame)
+
+local popupBtn = mk("TextButton", {
+    Size = UDim2.new(0, 120, 0, 34), Position = UDim2.new(0.5, -60, 1, -42),
+    BackgroundColor3 = C.Green, Text = "รับทราบ",
+    TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold,
+    TextSize = 14, ZIndex = 51, AutoButtonColor = true,
+}, popupFrame)
+mk("UICorner", { CornerRadius = UDim.new(0, 6) }, popupBtn)
 
 -- ============================================================
 -- 📱 รองรับมือถือ : ย่อ/ขยายหน้าต่างให้พอดีจอ + กันลากออกนอกจอ
@@ -277,6 +333,11 @@ local function fitToScreen()
         local vs = cam.ViewportSize
         if vs.X <= 0 or vs.Y <= 0 then return end
         uiScale.Scale = math.clamp(math.min((vs.X - 20) / W, (vs.Y - 20) / H), 0.6, 1)
+        -- 📱 ป๊อปอัปแจ้งเตือนก็ย่อตามจอเหมือนกัน (มือถือจอเล็กไม่ล้นจอ)
+        --    + ขยับ Position ตามสัดส่วนที่ย่อ → ยังอยู่กลางจอเป๊ะ (UIScale ไม่ขยับจุดกึ่งกลางให้)
+        local ps = math.clamp(math.min((vs.X - 24) / 280, (vs.Y - 24) / 140), 0.55, 1)
+        popupScale.Scale = ps
+        popupFrame.Position = UDim2.new(0.5, -140 * ps, 0.5, -70 * ps)
         clampPos()
     end)
 end
@@ -293,7 +354,7 @@ local bar = mk("Frame", {
 }, win)
 mk("TextLabel", {
     Size = UDim2.new(1, -80, 1, 0), Position = UDim2.new(0, 11, 0, 0),
-    BackgroundTransparency = 1, Text = "🥚 EGG LITE · r16", TextColor3 = C.Text,
+    BackgroundTransparency = 1, Text = "🥚 EGG LITE · r18", TextColor3 = C.Text,
     Font = Enum.Font.GothamBold, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left,
 }, bar)
 
@@ -354,36 +415,111 @@ local statusBadge = mk("TextLabel", {
 }, statusBox)
 mk("UICorner", { CornerRadius = UDim.new(1, 0) }, statusBadge)
 
--- 2) แถวปุ่ม : ปุ่มหลักเต็มกว้าง + ปุ่มรองเป็นไอคอน 44px (นิ้วแตะพอดี)
+-- ────────────────────────────────────────────────────────────
+-- 2) แถวที่ 1 : ⚡ เริ่มฟาร์ม  +  🔄 สวิตช์ฟาร์มออโต้ (ข้างกันตามคำสั่ง)
+-- ────────────────────────────────────────────────────────────
 local actions = mk("Frame", {
     Size = UDim2.new(1, 0, 0, 44), BackgroundTransparency = 1, LayoutOrder = 2,
 }, body)
 mk("UIListLayout", { Padding = UDim.new(0, 7), FillDirection = Enum.FillDirection.Horizontal }, actions)
 
 local startBtn = mk("TextButton", {
-    Size = UDim2.new(1, -102, 1, 0), BackgroundColor3 = C.Green, BorderSizePixel = 0,
+    Size = UDim2.new(1, -125, 1, 0), BackgroundColor3 = C.Green, BorderSizePixel = 0,
     AutoButtonColor = true, Text = "⚡ เริ่มฟาร์ม", TextColor3 = Color3.new(1, 1, 1),
     Font = Enum.Font.GothamBold, TextSize = 13,
 }, actions)
 mk("UICorner", { CornerRadius = UDim.new(0, 10) }, startBtn)
 
+local autoBtn = mk("TextButton", {
+    Size = UDim2.new(0.38, -5, 1, 0), BackgroundColor3 = Color3.fromRGB(107, 114, 128),
+    BorderSizePixel = 0, AutoButtonColor = true, Text = "🔄 ออโต้: ปิด",
+    TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 11,
+    TextTruncate = Enum.TextTruncate.AtEnd,
+}, actions)
+mk("UICorner", { CornerRadius = UDim.new(0, 10) }, autoBtn)
+
+-- ────────────────────────────────────────────────────────────
+-- 2.5) แถวที่ 2 : 🎯 วาร์ปไปฟาร์มไข่ที่เลือก (แยกต่างหากจากปุ่มออโต้) + 👑 เก็บ Giant
+-- ────────────────────────────────────────────────────────────
+local actions2 = mk("Frame", {
+    Size = UDim2.new(1, 0, 0, 40), BackgroundTransparency = 1, LayoutOrder = 3,
+}, body)
+mk("UIListLayout", { Padding = UDim.new(0, 7), FillDirection = Enum.FillDirection.Horizontal }, actions2)
+
+local warpBtn = mk("TextButton", {
+    Size = UDim2.new(1, -125, 1, 0), BackgroundColor3 = Color3.fromRGB(37, 99, 235),
+    BorderSizePixel = 0, AutoButtonColor = true, Text = "🎯 วาร์ปไปฟาร์มไข่ที่เลือก",
+    TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 11,
+    TextTruncate = Enum.TextTruncate.AtEnd,
+}, actions2)
+mk("UICorner", { CornerRadius = UDim.new(0, 10) }, warpBtn)
+
+local giantBtn = mk("TextButton", {
+    Size = UDim2.new(0.38, -5, 1, 0), BackgroundColor3 = Color3.fromRGB(217, 119, 6),
+    BorderSizePixel = 0, AutoButtonColor = true, Text = "👑 เก็บ Giant",
+    TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 11,
+    TextTruncate = Enum.TextTruncate.AtEnd,
+}, actions2)
+mk("UICorner", { CornerRadius = UDim.new(0, 10) }, giantBtn)
+
+-- ────────────────────────────────────────────────────────────
+-- 2.6) แถวที่ 3 : 👁️ ESP · 🔔 แจ้งเตือน
+--    📱 ปุ่มกว้างพอดีมือ + TextTruncate กันตัดข้อความบนมือถือ
+-- ────────────────────────────────────────────────────────────
+local actions3 = mk("Frame", {
+    Size = UDim2.new(1, 0, 0, 36), BackgroundTransparency = 1, LayoutOrder = 4,
+}, body)
+mk("UIListLayout", { Padding = UDim.new(0, 7), FillDirection = Enum.FillDirection.Horizontal }, actions3)
+
+local espBtn = mk("TextButton", {
+    Size = UDim2.new(0.47, -4, 1, 0), BackgroundColor3 = C.Accent,
+    BorderSizePixel = 0, AutoButtonColor = true, Text = "👁️ ESP: เปิด",
+    TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 10,
+    TextTruncate = Enum.TextTruncate.AtEnd,
+}, actions3)
+mk("UICorner", { CornerRadius = UDim.new(0, 10) }, espBtn)
+
+local notifyBtn = mk("TextButton", {
+    Size = UDim2.new(0.47, -4, 1, 0), BackgroundColor3 = C.Red,
+    BorderSizePixel = 0, AutoButtonColor = true, Text = "🔔 แจ้งเตือน: ปิด",
+    TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 10,
+    TextTruncate = Enum.TextTruncate.AtEnd,
+}, actions3)
+mk("UICorner", { CornerRadius = UDim.new(0, 10) }, notifyBtn)
+
+-- ────────────────────────────────────────────────────────────
+-- 2.7) แถวที่ 4 : 🎮 ภาพกาก (3 ระดับ) · 🌋 ลาวา · 👀 ดูข้อมูลไข่
+-- ────────────────────────────────────────────────────────────
+local actions4 = mk("Frame", {
+    Size = UDim2.new(1, 0, 0, 36), BackgroundTransparency = 1, LayoutOrder = 5,
+}, body)
+mk("UIListLayout", { Padding = UDim.new(0, 7), FillDirection = Enum.FillDirection.Horizontal }, actions4)
+
+local gfxBtn = mk("TextButton", {
+    Size = UDim2.new(1, -101, 1, 0), BackgroundColor3 = Color3.fromRGB(107, 114, 128),
+    BorderSizePixel = 0, AutoButtonColor = true, Text = "🎮 ภาพกาก: ปิด",
+    TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 11,
+    TextTruncate = Enum.TextTruncate.AtEnd,
+}, actions4)
+mk("UICorner", { CornerRadius = UDim.new(0, 10) }, gfxBtn)
+
 local dipBtn = mk("TextButton", {
-    Size = UDim2.new(0, 44, 1, 0), BackgroundColor3 = Color3.fromRGB(107, 114, 128),
+    Size = UDim2.new(0, 40, 1, 0), BackgroundColor3 = Color3.fromRGB(107, 114, 128),
     BorderSizePixel = 0, AutoButtonColor = true, Text = "🌋",
     TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 17,
-}, actions)
+}, actions4)
 mk("UICorner", { CornerRadius = UDim.new(0, 10) }, dipBtn)
 
 local previewBtn = mk("TextButton", {
-    Size = UDim2.new(0, 44, 1, 0), BackgroundColor3 = Color3.fromRGB(168, 85, 247),
+    Size = UDim2.new(0, 40, 1, 0), BackgroundColor3 = Color3.fromRGB(168, 85, 247),
     BorderSizePixel = 0, AutoButtonColor = true, Text = "👀",
     TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 17,
-}, actions)
+}, actions4)
 mk("UICorner", { CornerRadius = UDim.new(0, 10) }, previewBtn)
 
 -- 3) หัวข้อ "ไข่" (พับได้) — ยุบ 3 label เดิมไว้ในนี้
 local eggHead = mk("TextButton", {
-    Size = UDim2.new(1, 0, 0, 38), BackgroundTransparency = 1, LayoutOrder = 3,
+    Size = UDim2.new(1, 0, 0, 38), BackgroundTransparency = 1, LayoutOrder = 6,
     AutoButtonColor = false, Text = "",
 }, body)
 local eggChev = mk("TextLabel", {
@@ -409,7 +545,7 @@ local grid = mk("ScrollingFrame", {
     Size = UDim2.new(1, 0, 0, 166), BackgroundColor3 = C.BgDark,
     BackgroundTransparency = 0.35, BorderSizePixel = 0, ScrollBarThickness = 4,
     ScrollBarImageColor3 = C.Stroke, AutomaticCanvasSize = Enum.AutomaticSize.Y,
-    CanvasSize = UDim2.new(0, 0, 0, 0), LayoutOrder = 4,
+    CanvasSize = UDim2.new(0, 0, 0, 0), LayoutOrder = 7,
 }, body)
 mk("UICorner", { CornerRadius = UDim.new(0, 10) }, grid)
 mk("UIPadding", { PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8),
@@ -421,7 +557,7 @@ mk("UIGridLayout", {
 
 -- 5) หัวข้อ "ล็อก" (พับได้)
 local logHead = mk("TextButton", {
-    Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, LayoutOrder = 5,
+    Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, LayoutOrder = 8,
     AutoButtonColor = false, Text = "",
 }, body)
 local logChev = mk("TextLabel", {
@@ -444,7 +580,7 @@ mk("UICorner", { CornerRadius = UDim.new(0, 6) }, logClear)
 -- 6) ล็อก : 120px (เดิม 64px) — อ่านได้ ~9 บรรทัด
 local logBox = mk("Frame", {
     Size = UDim2.new(1, 0, 0, 120), BackgroundColor3 = C.Log,
-    BackgroundTransparency = 0.15, BorderSizePixel = 0, LayoutOrder = 6,
+    BackgroundTransparency = 0.15, BorderSizePixel = 0, LayoutOrder = 9,
 }, body)
 mk("UICorner", { CornerRadius = UDim.new(0, 8) }, logBox)
 local logLbl = mk("TextLabel", {
@@ -457,7 +593,7 @@ local logLbl = mk("TextLabel", {
 -- 7) footer : ตัวนับ + ปุ่มทำลาย (แยกห่างจากปุ่มหลัก กันคลิกพลาด)
 local foot = mk("Frame", {
     Size = UDim2.new(1, 0, 0, 36), BackgroundColor3 = C.BgDark,
-    BackgroundTransparency = 0.35, BorderSizePixel = 0, LayoutOrder = 7,
+    BackgroundTransparency = 0.35, BorderSizePixel = 0, LayoutOrder = 10,
 }, body)
 mk("UICorner", { CornerRadius = UDim.new(0, 9) }, foot)
 local countLbl = mk("TextLabel", {
@@ -475,14 +611,86 @@ local rejoinBtn = mk("TextButton", {
 mk("UICorner", { CornerRadius = UDim.new(0, 8) }, rejoinBtn)
 mk("UIStroke", { Color = Color3.fromRGB(239, 68, 68), Thickness = 1.2, Transparency = 0.25 }, rejoinBtn)
 
--- 🔽 พับ/กางหัวข้อ (progressive disclosure — ระบบใหม่ไม่ทำให้หน้ายาวขึ้น)
+-- 📐 ความสูงหน้าต่าง = "ตามเมนูที่เปิดอยู่จริง" — พับส่วนไหน = ย่อลงทันที (ไม่มีที่ว่างเปล่าค้าง)
+local function contentHeight()
+    local h = 10 + 32 + 8                -- padding บน + แถบสถานะ + ช่องว่าง
+    h = h + 44 + 8                       -- แถว ⚡ เริ่มฟาร์ม + 🔄 ออโต้
+    h = h + 40 + 8                       -- แถว 🎯 วาร์ป + 👑 Giant
+    h = h + 36 + 8                       -- แถว 👁️ + 🔔
+    h = h + 36 + 8                       -- แถว 🎮 ภาพกาก + 🌋 + 👀
+    h = h + 38 + 8                       -- หัวข้อ "ไข่"
+    if grid.Visible then h = h + 166 + 8 end
+    h = h + 22 + 8                       -- หัวข้อ "ล็อก"
+    if logBox.Visible then h = h + 120 + 8 end
+    h = h + 36 + 10                      -- footer + padding ล่าง
+    return h
+end
+
+local function reflow()
+    local h = 32 + contentHeight()       -- 32 = แถบชื่อด้านบน
+    H = h
+    TweenService:Create(win, TweenInfo.new(0.18), { Size = UDim2.new(0, W, 0, h) }):Play()
+    fitToScreen()                         -- ย่อ/ขยายตามจอใหม่ + กันลาก/ล้นออกนอกจอ
+end
+
+-- 🔽 พับ/กางหัวข้อ (progressive disclosure — พับแล้วหน้าต่างสั้นลงตามจริง)
 eggHead.Activated:Connect(function()
     grid.Visible = not grid.Visible
     eggChev.Text = grid.Visible and "▼" or "▶"
+    reflow()
 end)
 logHead.Activated:Connect(function()
     logBox.Visible = not logBox.Visible
     logChev.Text = logBox.Visible and "▼" or "▶"
+    reflow()
+end)
+
+-- ============================================================
+-- 📜 ระบบ logfile : บันทึก "ทุกเหตุการณ์" ลงไฟล์ .txt พร้อมวัน/เวลา
+--    · หน้าต่างโปรแกรมโชว์ "เฉพาะตอนมีบั๊ก" เท่านั้น (logLine เป็นคนแยก)
+--    · ไฟล์ = EGG_LITE_LOG.txt (โฟลเดอร์ workspace ของ executor)
+--    · มี appendfile = เขียนทันทีทุกบรรทัด / ไม่มี = เก็บในหน่วยความจำ
+--      แล้ว writefile ทุก 5 วิ (ลดการเขียนดิสก์ = ไม่กิน FPS)
+-- ============================================================
+local LOG_PATH  = "EGG_LITE_LOG.txt"
+local hasAppend = type(appendfile) == "function"
+local hasWrite  = type(writefile) == "function"
+local hasRead   = type(readfile) == "function"
+local fileText  = nil     -- โหมด fallback : เนื้อหาไฟล์ทั้งหมดเก็บไว้ในหน่วยความจำ
+local fileDirty = false
+
+local function fileLog(msg)
+    local line = os.date("[%Y-%m-%d %H:%M:%S] ") .. tostring(msg)
+    if hasAppend then
+        local ok = pcall(appendfile, LOG_PATH, line .. "\n")
+        if ok then return end
+        hasAppend = false                     -- appendfile ใช้ไม่ได้จริง → เปลี่ยนเป็น writefile
+        hasWrite  = type(writefile) == "function"
+    end
+    if not hasWrite then return end
+    if fileText == nil then
+        fileText = ""
+        if hasRead then                       -- ต่อท้ายไฟล์เดิม (ไม่เขียนทับประวัติรอบก่อน)
+            local ok, old = pcall(readfile, LOG_PATH)
+            if ok and type(old) == "string" then fileText = old end
+        end
+        if fileText ~= "" and fileText:sub(-1) ~= "\n" then fileText = fileText .. "\n" end
+    end
+    fileText = fileText .. line .. "\n"
+    fileDirty = true
+end
+
+local function flushLogFile()
+    if not fileDirty or fileText == nil then return end
+    if pcall(writefile, LOG_PATH, fileText) then fileDirty = false end
+end
+
+fileLog("===== EGG LITE เปิดใช้งาน =====")
+task.spawn(function()
+    while true do
+        task.wait(5)
+        flushLogFile()
+    end
 end)
 
 -- ---------- ผู้ช่วยฝั่ง UI ----------
@@ -496,14 +704,29 @@ local U = {
     badge       = "0 ใบ",
     dot         = false,
     count       = "เก็บแล้ว 0 ใบ",
-    meta        = "🥚 เลือก 0/" .. #EGG_DATA .. " · ยังไม่เลือก · 👁️ ESP",
+    meta        = "🥚 คิว 0/" .. #EGG_DATA .. " · ยังไม่เลือก · 👁️ เปิด",
     spawn       = "กำลังสแกนไข่ในแมพ ...",
     spawnColor  = C.Amber,
 }
 local ap = {}   -- ค่าที่ "เขียนลง Instance จริง" ไปแล้ว (ไว้เทียบ กันเขียนซ้ำเปล่า ๆ)
 
+-- 🐛 คำ nàoถือว่า "บั๊ก/ปัญหา" → ถึงโชว์บนหน้าต่าง (นอกนั้นเก็บลงไฟล์อย่างเดียว)
+local function isBugMsg(msg)
+    local m = tostring(msg)
+    return string.find(m, "[X]", 1, true) ~= nil
+        or string.find(m, "[ERR]", 1, true) ~= nil
+        or string.find(m, "[!]", 1, true) ~= nil
+        or string.find(m, "ล้มเหลว", 1, true) ~= nil
+        or string.find(m, "ไม่สำเร็จ", 1, true) ~= nil
+        or string.find(m, "ไม่เจอ", 1, true) ~= nil
+        or string.find(m, "ผิดพลาด", 1, true) ~= nil
+        or string.find(m, "ขัดข้อง", 1, true) ~= nil
+end
+
 local logLines = {}
 local function logLine(msg)
+    fileLog(msg)                        -- 📜 ทุกบรรทัด = ลงไฟล์เสมอ พร้อมเวลา (ละเอียดทุกเหตุการณ์)
+    if not isBugMsg(msg) then return end -- 🖥️ หน้าต่าง = โชว์ "เฉพาะบั๊ก" เท่านั้น (ตามคำสั่ง)
     table.insert(logLines, os.date("%H:%M:%S") .. "  " .. msg)
     while #logLines > 10 do table.remove(logLines, 1) end   -- กล่องล็อกสูง 120px → อ่านได้ ~10 บรรทัด
     U.log = table.concat(logLines, "\n")
@@ -536,6 +759,198 @@ local function bumpCollected() setCollected(collectedTotal + 1) end
 if not remoteOk then logLine("[!] โหลด remote ไม่ครบ") end
 
 -- ============================================================
+-- 🥔 ระบบ "ภาพกาก" (BOOST FPS) — ย้ายมาจาก 2.lua + ปรับเป็น 3 ระดับ
+--    กดวน : ปิด → 1 (เบา) → 2 (กลาง) → 3 (กากสุด) → ปิด
+--    · Lv1 = แสง/เงา/PostFX + QualityLevel ต่ำ
+--    · Lv2 = + หญ้า/น้ำ/อนุภาค/ไฮไลต์/เงาสะท้อน/ไม่วาดเงา
+--    · Lv3 = + ลบเท็กซ์เจอร์/PBR/ท้องฟ้า/ต้นไม้ (จัดเต็มแบบไฟล์ 2)
+--    · คืนค่าได้ทุกจุด (เก่าไว้ใน boostUndo) · เปลี่ยนระดับ = คืนก่อนแล้วเปิดใหม่
+--    🛡️ คุ้มกัน : UI เรา / กล่อง+ป้าย ESP / ทุกอย่างที่อยู่ใน "ไข่"
+-- ============================================================
+-- 📦 ครอบบล็อกด้วย do...end : ตัวแปร boost ทั้งหมดจะถูกปลด register เมื่อจบบล็อก
+--    (โผล่ออกมานอกบล็อกแค่ "GFX" ตัวเดียว) — แก้อาการ compile ไม่ผ่าน
+--    "Out of local registers ... exceeded limit 200" ของ Luau
+local GFX   -- หน้าต่างติดต่อให้ปุ่ม 🎮 ใช้ : GFX.getLevel / GFX.setLevel / GFX.text / GFX.color
+do
+local gfxLevel  = 0            -- 0 = ปกติ, 1 = เบา, 2 = กลาง, 3 = กากสุด
+local boostUndo = {}           -- รายการคืนค่า (เก็บค่า/ตำแหน่งเดิมไว้)
+local boostDone = setmetatable({}, { __mode = "k" })  -- กันประมวลผล instance ซ้ำ
+local boostConn = nil
+local boostProtectedRoots = { parentGui }             -- UI ของเราห้ามแตะ
+
+local function boostProtected(inst)
+    for _, root in ipairs(boostProtectedRoots) do
+        if root and inst:IsDescendantOf(root) then return true end
+    end
+    if inst.Name == "EspBox" or inst.Name == "EspTag" then return true end
+    local cur = inst
+    while cur and cur ~= workspace do
+        if cur.Name == "EGG_ESP_LITE" then return true end  -- โฟลเดอร์ ESP เรา
+        cur = cur.Parent
+    end
+    return false
+end
+
+-- อยู่ใน "ไข่" ไหม (ชื่อ ancestor มีคำว่า egg) → Lv3 จะไม่ลบเท็กซ์เจอร์ไข่
+local function insideEgg(inst)
+    local cur = inst
+    while cur and cur ~= workspace do
+        if string.find(string.lower(cur.Name), "egg", 1, true) then return true end
+        cur = cur.Parent
+    end
+    return false
+end
+
+-- จำค่าเดิมไว้คืน แล้วตั้งค่าใหม่ (ถ้าไม่มีพร็อพนี้ในเวอร์ชันนี้ก็ข้ามไป)
+local function boostSet(inst, prop, value)
+    local ok, old = pcall(function() return inst[prop] end)
+    if not ok then return end
+    table.insert(boostUndo, function() pcall(function() inst[prop] = old end) end)
+    pcall(function() inst[prop] = value end)
+end
+
+-- ถอดออกจากแมพชั่วคราว (คืนได้ เพราะเก็บ Parent เดิมไว้)
+local function boostDetach(inst)
+    local oldParent = inst.Parent
+    table.insert(boostUndo, function() pcall(function() inst.Parent = oldParent end) end)
+    pcall(function() inst.Parent = nil end)
+end
+
+-- ลดความกาก "รายชิ้น" — ขึ้นกับ gfxLevel ตอนที่ถูกเรียก (Lv3 = จัดเต็ม)
+local function boostClean(inst)
+    if boostDone[inst] or boostProtected(inst) then return end
+    boostDone[inst] = true
+    local lvl = gfxLevel
+
+    if inst:IsA("BasePart") then
+        if lvl >= 2 then
+            boostSet(inst, "Reflectance", 0)
+            boostSet(inst, "CastShadow", false)
+        end
+        if lvl >= 3 and not insideEgg(inst) then         -- 🥚 ไข่ห้ามแตะ (ต้องเห็นชัด)
+            boostSet(inst, "Material", Enum.Material.SmoothPlastic)
+            if inst:IsA("MeshPart") then boostSet(inst, "TextureID", "") end
+        end
+    elseif lvl >= 2 then
+        if inst:IsA("Highlight") then
+            boostSet(inst, "Enabled", false)             -- (EspBox ของเราโดนคุ้มกันไว้)
+        elseif inst:IsA("SelectionBox") or inst:IsA("SelectionSphere") then
+            boostSet(inst, "Visible", false)
+        elseif inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Beam")
+            or inst:IsA("Fire") or inst:IsA("Smoke") or inst:IsA("Sparkles") then
+            boostSet(inst, "Enabled", false)             -- อนุภาค/ควัน/เปลว
+        end
+    end
+
+    if lvl >= 3 then
+        if inst:IsA("Decal") or inst:IsA("Texture") then
+            if not insideEgg(inst) then
+                boostSet(inst, "Texture", "")
+                boostSet(inst, "Transparency", 1)
+            end
+        elseif inst:IsA("SpecialMesh") then
+            if not insideEgg(inst) then boostSet(inst, "TextureId", "") end
+        elseif inst:IsA("SurfaceAppearance") then
+            boostDetach(inst)                            -- ลบ PBR (หนัก)
+        elseif inst:IsA("Explosion") or inst:IsA("Clouds") or inst:IsA("Sky") then
+            boostDetach(inst)
+        elseif inst:IsA("Model") then
+            local name = string.lower(inst.Name)
+            -- ห้ามแตะอะไรที่ชื่อมีคำว่า egg (กันระบบฟาร์ม/ไข่หาย)
+            if not name:find("egg", 1, true)
+                and (name:find("tree", 1, true) or name:find("bush", 1, true)
+                    or name:find("grass", 1, true) or name:find("plant", 1, true)
+                    or name:find("leaf", 1, true)) then
+                boostDetach(inst)                        -- ต้นไม้/หญ้า (ย้ายออก ไม่ Destroy)
+            end
+        end
+    end
+end
+
+local function boostSweep()
+    for _, inst in ipairs(workspace:GetDescendants()) do boostClean(inst) end
+end
+
+-- คืนทุกอย่างกลับเหมือนเดิม (ก่อนเปลี่ยนระดับ/ปิด)
+local function boostReset()
+    if boostConn then boostConn:Disconnect(); boostConn = nil end
+    for i = #boostUndo, 1, -1 do pcall(boostUndo[i]) end
+    boostUndo = {}
+    boostDone = setmetatable({}, { __mode = "k" })
+    pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Automatic end)
+end
+
+-- เปิดถึงระดับที่ระบุ (เรียกหลัง boostReset — เสมอ)
+local function boostApply(level)
+    if level <= 0 then return end
+
+    local lighting = game:GetService("Lighting")
+    boostSet(lighting, "GlobalShadows", false)
+    boostSet(lighting, "FogEnd", 9e9)
+    boostSet(lighting, "Brightness", 1)
+    boostSet(lighting, "EnvironmentDiffuseScale", 0)
+    boostSet(lighting, "EnvironmentSpecularScale", 0)
+    for _, v in ipairs(lighting:GetChildren()) do
+        if v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("ColorCorrectionEffect")
+            or v:IsA("BloomEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("Atmosphere") then
+            boostSet(v, "Enabled", false)
+        elseif level >= 3 and (v:IsA("Sky") or v:IsA("Clouds")) then
+            boostDetach(v)                                -- Lv3 เท่านั้น (กันจอขาว/ดำ)
+        end
+    end
+
+    pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 end)
+
+    if level >= 2 then
+        local terrain = workspace:FindFirstChildOfClass("Terrain")
+        if terrain then
+            boostSet(terrain, "Decoration", false)        -- ปิดหญ้าประดับ
+            boostSet(terrain, "GrassLength", 0)
+            boostSet(terrain, "WaterWaveSize", 0)
+            boostSet(terrain, "WaterWaveSpeed", 0)
+            boostSet(terrain, "WaterTransparency", 1)
+        end
+    end
+
+    boostSweep()
+
+    -- เอฟเฟกต์ที่เกิดใหม่หลังเปิดบูสต์ ก็เก็บด้วย (ทั้งตอนเกิดใหม่และสแกนซ้ำ)
+    boostConn = workspace.DescendantAdded:Connect(function(inst)
+        if gfxLevel > 0 then boostClean(inst) end
+    end)
+end
+
+-- 🔘 เปลี่ยนระดับภาพกาก = คืนของเดิมก่อนเสมอ แล้วเปิดใหม่ตามระดับ
+local function setGfxLevel(level)
+    boostReset()
+    gfxLevel = level
+    if level > 0 then boostApply(level) end
+end
+
+-- สแกนซ้ำทุก 4 วิ เผื่อตัวที่หลุดมาจาก DescendantAdded (ทำงานเฉพาะตอนเปิดอยู่)
+task.spawn(function()
+    while true do
+        task.wait(4)
+        if gfxLevel > 0 then boostSweep() end
+    end
+end)
+
+-- 📤 เปิดเผยเฉพาะสิ่งที่ปุ่ม 🎮 ต้องใช้ แล้วปิดบล็อก do (ปลด register ทั้งก้อน)
+GFX = {
+    getLevel = function() return gfxLevel end,
+    setLevel = setGfxLevel,
+    text = {
+        "🎮 ภาพกาก: ปิด", "🎮 ภาพกาก: 1 เบา",
+        "🎮 ภาพกาก: 2 กลาง", "🎮 ภาพกาก: 3 กากสุด",
+    },
+    color = {
+        Color3.fromRGB(107, 114, 128), Color3.fromRGB(16, 185, 129),
+        Color3.fromRGB(245, 158, 11),  Color3.fromRGB(239, 68, 68),
+    },
+}
+end -- do ... end ของระบบภาพกาก
+
+-- ============================================================
 -- ส่วนที่ 2 : ตารางเลือกไข่
 -- ============================================================
 local tileByEgg = {}
@@ -559,18 +974,19 @@ local function applyUI()
         if not a then a = {}; t.ap = a end
         if a.sel ~= t.sel then                          -- 🎯 สถานะเลือก (แตะ / กดค้าง)
             a.sel = t.sel
-            local idx, mode = t.selIdx, t.selMode
+            local idx, mode, tgt = t.selIdx, t.selMode, t.isTarget
             if idx then
                 t.badge.Visible = true
                 t.q.Text = (mode == "auto") and "∞" or tostring(idx)
                 t.tile.BackgroundColor3 = (mode == "auto")
-                    and Color3.fromRGB(18, 51, 36)      -- 🟩 เขียว = ออโต้
-                    or  Color3.fromRGB(21, 40, 68)      -- 🟦 น้ำเงิน = ใบเดียว
+                    and Color3.fromRGB(18, 51, 36)      -- 🟩 เขียว = คิวหลายใบ (กดค้าง)
+                    or  (tgt and Color3.fromRGB(66, 48, 18)   -- 🟫 อำพัน = เป้าหมายใบเดียว
+                        or  Color3.fromRGB(21, 40, 68))       -- 🟦 น้ำเงิน = ใบเดียวปกติ
                 t.stroke.Thickness = 2.4
             else
                 t.badge.Visible = false
-                t.tile.BackgroundColor3 = C.Card
-                t.stroke.Thickness = 1.4
+                t.tile.BackgroundColor3 = tgt and Color3.fromRGB(66, 48, 18) or C.Card
+                t.stroke.Thickness = tgt and 2.4 or 1.4
             end
         end
         if a.spawn ~= t.spawnNow then                   -- 🟡 จุด "ไข่ตัวนี้เกิดอยู่ในแมพตอนนี้"
@@ -580,16 +996,24 @@ local function applyUI()
     end
 end
 
+-- ⚡ ลดการกิน FPS : วาด UI ที่ 30Hz (0.033 วิ) แทน 60Hz — ค่าทุกอย่างอยู่ในแคชอยู่แล้ว
+--    สายตาแยกไม่ออก แต่งานเขียน Instance ต่อวินาทีลดลงครึ่งหนึ่ง
 local uiPaintConn
+local uiPaintAt = 0
 uiPaintConn = RunService.RenderStepped:Connect(function()
     if not sg.Parent then uiPaintConn:Disconnect(); return end  -- ปิดหน้าต่างแล้วหยุดวาด
+    local now = os.clock()
+    if now - uiPaintAt < 0.033 then return end
+    uiPaintAt = now
     applyUI()
 end)
 
 -- ============================================================
--- 🎯 2 โหมดเลือกไข่ :
---    👆 แตะ         = เลือก "ใบเดียว"  (ใบใหม่แทนที่ใบเก่า) → ⚡ ฟาร์มจนหมดในแมพแล้วหยุดเอง
---    👆 กดค้าง 3 วิ  = เลือกแบบ "ออโต้" (เพิ่มได้หลายใบ)     → ⚡ ฟาร์มยาว ๆ ไม่หยุด
+-- 🎯 เลือกไข่ "แบบไฟล์ 2" :
+--    👆 แตะ         = เลือก "เป้าหมายใบเดียว" (currentTargetEgg → ใช้กับ ESP)
+--                     · คิวมีไข่แบบกดค้างอยู่ = ไม่แตะคิวเลย (กันคิวหลายใบหาย)
+--                     · คิวว่าง/มีแค่ใบเดียว = เปลี่ยนเป็นใบนั้นทันที (ฟาร์มใบเดียวเหมือนเดิม)
+--    👆 กดค้าง 3 วิ  = คิว "หลายใบ" : ยังไม่มี = เพิ่มเป็นออโต้ / มีแล้ว = เอาออก
 -- ============================================================
 local eggMode = {}   -- eggMode[name] = "once" | "auto"
 
@@ -600,56 +1024,71 @@ local function hasAutoMode()
     return false
 end
 
+local function eggShortName(full)
+    for _, row in ipairs(EGG_DATA) do
+        if row[1] == full then return row[4] end
+    end
+    return full
+end
+
 local function refreshSelection()
     -- ⚠️ ไม่เขียน Label ตรง ๆ — ให้เขียน "สถานะ" ลง t.* แล้วรอ applyUI() วาดทุกเฟรมแทน
+    local target = currentTargetEgg
     for name, t in pairs(tileByEgg) do
         local idx, mode = nil, nil
         for k, n in ipairs(selectedEggs) do
             if n == name then idx = k; mode = eggMode[name] or "once"; break end
         end
         t.selIdx, t.selMode = idx, mode
-        t.sel = idx and ((mode or "once") .. ":" .. idx) or ""
+        t.isTarget = (target == name)
+        -- เปลี่ยนค่าเมื่อ "ในคิว" หรือ "เป็นเป้าหมาย" เปลี่ยน → ตัววาดทุกเฟรมจะวาดใหม่ให้
+        t.sel = (idx and ((mode or "once") .. ":" .. idx) or "")
+            .. (t.isTarget and "|T" or "")
     end
     local n = #selectedEggs
-    local auto = hasAutoMode()
-    -- 👁️ ต่อท้ายเสมอ : ให้เห็นว่า ESP เปิด/ปิดอยู่ (เปิด = ใบเดียว · ปิด = กดค้างออโต้)
-    local espTxt = auto and " · 👁️ ปิด" or " · 👁️ ESP"
+    local auto = (autoFarmOn or hasAutoMode())
+    local espTxt = " · 👁️ " .. (espEnabled and "เปิด" or "ปิด")
+    local tgtTxt = target and (" · เป้า " .. eggShortName(target)) or ""
     if n > 0 then
-        U.meta = "🥚 เลือก " .. n .. "/" .. #EGG_DATA .. " · "
-            .. (auto and "โหมด ออโต้ ∞" or "โหมด ใบเดียว") .. espTxt
-        setBadge(auto and (n .. " ใบ") or "1 ใบ")
+        U.meta = "🥚 คิว " .. n .. "/" .. #EGG_DATA .. " · "
+            .. (auto and "โหมด ออโต้ ∞" or "โหมด ใบเดียว") .. tgtTxt .. espTxt
+        setBadge(n .. " ใบ")
     else
-        U.meta = "🥚 เลือก 0/" .. #EGG_DATA .. " · ยังไม่เลือก" .. espTxt
+        U.meta = "🥚 คิว 0/" .. #EGG_DATA
+            .. (target and tgtTxt or " · ยังไม่เลือก") .. espTxt
         setBadge("0 ใบ")
     end
 end
 
--- 👆 "แตะ" = เลือกใบเดียว (ใบใหม่แทนที่ใบเก่าทั้งหมด)
-local function selectOnce(name)
-    for i = #selectedEggs, 1, -1 do selectedEggs[i] = nil end
-    eggMode = {}
-    table.insert(selectedEggs, name)
-    eggMode[name] = "once"
-    refreshSelection()
-    logLine("[👆] แตะ " .. name .. " → ใบเดียว (เสร็จแล้วหยุดเอง)")
+-- 👆 "แตะ" = เป้าหมายใบเดียว (แบบไฟล์ 2) — คิวแบบกดค้าง (ออโต้) ไม่ถูกแตะต้อง
+local function selectSingle(name)
+    currentTargetEgg = name
+    local keepQueue = hasAutoMode()          -- มีคิวหลายใบอยู่ → ห้ามล้าง (กติกาไฟล์ 2)
+    if not keepQueue then
+        -- คิวว่างหรือมีแค่ "ใบเดียว" เดิม → เปลี่ยนเป็นใบนี้ (ฟาร์มใบเดียวเสร็จแล้วหยุดเองเหมือนเดิม)
+        for _, n in ipairs(selectedEggs) do eggMode[n] = nil end
+        for i = #selectedEggs, 1, -1 do selectedEggs[i] = nil end
+        table.insert(selectedEggs, name)
+        eggMode[name] = "once"
+        refreshSelection()
+        logLine("[👆] แตะ " .. name .. " → เป้าหมายใบเดียว (เสร็จแล้วหยุดเอง)")
+    else
+        refreshSelection()
+        logLine("[👆] แตะ " .. name .. " → เป้าหมาย (คิวหลายใบคงเดิม)")
+    end
 end
 
--- 👆 "กดค้าง" = เพิ่มแบบออโต้ (ฟาร์มยาว ๆ) — ถ้ามีอยู่แล้ว = เอาออก
-local function toggleAuto(name)
-    local found = false
-    for _, n in ipairs(selectedEggs) do
-        if n == name then found = true; break end
-    end
-    if found and eggMode[name] == "auto" then
-        for k, n in ipairs(selectedEggs) do
-            if n == name then table.remove(selectedEggs, k); break end
-        end
+-- 👆 "กดค้าง 3 วิ" = คิวหลายใบ (แบบไฟล์ 2) — มีอยู่แล้ว = เอาออก / ยังไม่มี = เพิ่มเป็นออโต้
+local function toggleMulti(name)
+    local foundIdx = table.find(selectedEggs, name)
+    if foundIdx then
+        table.remove(selectedEggs, foundIdx)
         eggMode[name] = nil
         logLine("[👆] เอา " .. name .. " ออกจากคิว")
     else
-        if not found then table.insert(selectedEggs, name) end
+        table.insert(selectedEggs, name)
         eggMode[name] = "auto"
-        logLine("[👆] กดค้าง " .. name .. " → ออโต้ ∞ (ฟาร์มยาว)")
+        logLine("[👆] กดค้าง " .. name .. " → คิวหลายใบ (ฟาร์มยาว ๆ)")
     end
     refreshSelection()
 end
@@ -663,7 +1102,7 @@ local function cancelHold(fire)
     if holdProg then holdProg.Visible = false; holdProg = nil end
     holdName = nil
     if not n then return end
-    if fire then toggleAuto(n) else selectOnce(n) end
+    if fire then toggleMulti(n) else selectSingle(n) end
 end
 
 for i, row in ipairs(EGG_DATA) do
@@ -729,6 +1168,7 @@ for i, row in ipairs(EGG_DATA) do
         tile = tile, badge = badge, q = qTxt, stroke = stroke, dot = spawnDot,
         img = img, fb = fbLbl, hasImg = (image ~= ""), tries = 0,   -- สำหรับสแกนรูปจากโมเดล
         ap = {}, sel = "", selIdx = nil, selMode = nil, spawnNow = false,  -- สำหรับตัววาดทุกเฟรม
+        isTarget = false,                                                  -- 🎯 เคยเป็นเป้าหมายจากการแตะไหม
     }
 
     tile.InputBegan:Connect(function(io)
@@ -894,15 +1334,20 @@ local function getPlotCFrame()
 end
 
 -- 📡 สแกนไข่ทั้งหมดในแมพ → คืนตาราง { "Solaris Egg" = {egg, egg, ...}, ... }
+--    🔧 แก้บั๊ก "ไข่มีอยู่จริงแต่สแกนไม่เจอ" : ค้นชื่อแบบ "ไม่สนช่องว่าง/พิมพ์เล็กใหญ่"
+--       ("GiantEgg" == "giant egg" == "Giant Egg") — ทั้ง ESP / แจ้งเตือน / วาร์ปใช้ผลนี้ร่วมกัน
 --    ใช้ร่วมกัน 2 ทาง : ลูปฟาร์ม (หาเป้าหมาย) และป้ายบอกไข่ที่เกิดอยู่
 local function scanAll()
     local byName = {}
     for _, item in ipairs(workspace:GetDescendants()) do
         if (item:IsA("Model") or item:IsA("Tool")) and isWildEgg(item) then
             local lowItem = string.lower(item.Name)
+            local keyItem = string.gsub(lowItem, "%s+", "")   -- เว้นวรรคทิ้ง = "giantegg"
             for _, row in ipairs(EGG_DATA) do
                 local en = row[1]
-                if string.find(lowItem, string.lower(en), 1, true) then
+                local keyEn = string.gsub(string.lower(en), "%s+", "")
+                if string.find(lowItem, string.lower(en), 1, true)
+                    or (keyEn ~= "" and string.find(keyItem, keyEn, 1, true)) then
                     local arr = byName[en]
                     if not arr then arr = {}; byName[en] = arr end
                     table.insert(arr, item)
@@ -922,6 +1367,27 @@ local function scanQueue()
         if arr and #arr > 0 then return arr[1] end
     end
     return nil
+end
+
+-- 🏆 หาไข่ "ใหญ่ที่สุดในแมพ" (วัด bounding box จริง) — ใช้เมื่อไม่เจอชื่อ "Giant Egg"
+--    คืน : instance ชื่อ (ต้องเป็นชื่อใน EGG_DATA → ใช้กับคิวฟาร์มได้) ปริมาตร (studs³)
+local function biggestEggInMap()
+    local byName = scanAll()
+    local best, bestName, bestVol = nil, nil, -1
+    for nm, arr in pairs(byName) do
+        for i = 1, #arr do
+            local e = arr[i]
+            local ok, cf, sz = pcall(function() return e:GetBoundingBox() end)
+            if ok and sz then
+                local vol = sz.X * sz.Y * sz.Z
+                if vol > bestVol then
+                    bestVol, best, bestName = vol, e, nm
+                end
+            end
+        end
+    end
+    if best then return best, bestName, bestVol end
+    return nil, nil, nil
 end
 
 -- ✈️ noclip แบบจำตำแหน่งเดิม แล้วคืนค่าตอนหยุด (ไม่ใช่ตั้งค่า true ทั้งตัวเหมือนของเดิม)
@@ -1692,41 +2158,75 @@ local function placeHeldEgg(reason)
     return false
 end
 
+-- 🔁 หา instance "สดใหม่" ของไข่ใบเดิม — แก้บั๊ก "วาร์ปไปแล้วไม่เจอ ทั้งที่ไข่มีอยู่จริง"
+--    (instance เก่าถูกเก็บไป/เกิดใหม่ระหว่างที่เรากด → ต้องสแกนหาใบใหม่ด้วยชื่อเดิมก่อนวาร์ป)
+local function resolveLiveEgg(egg, name)
+    if egg and egg.Parent and egg:IsDescendantOf(workspace) and isWildEgg(egg) then
+        return egg
+    end
+    name = name or (egg and egg.Name)
+    if not name then return nil end
+    local arr = scanAll()[name]
+    if arr then
+        for i = 1, #arr do
+            local e = arr[i]
+            if e and e.Parent and e:IsDescendantOf(workspace) and isWildEgg(e) then
+                return e
+            end
+        end
+    end
+    return nil
+end
+
 -- 🥚 หนึ่งรอบเก็บ : ไป → เก็บ → ตรวจเข้ามือ → กลับแปลง → วาง
 local function grabAndReturn(egg)
     if isGrabbing then return false end
-    if not egg or not egg.Parent then return false end
+    local wantName = egg and egg.Name
+    egg = resolveLiveEgg(egg, wantName)              -- 🔄 เอา instance "สด" ก่อนเสมอ
+    if not egg then
+        logLine("[X] เริ่มเก็บไม่ได้ : หา " .. tostring(wantName) .. " ใหม่ไม่เจอ (อ้างอิงเก่า/หายจากแมพ)")
+        return false
+    end
     local char = player.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return false end
     local targetPart = eggPart(egg)
-    if not targetPart then return false end
+    if not targetPart then
+        logLine("[X] ไข่ " .. egg.Name .. " ไม่มี BasePart ให้วาร์ป")
+        return false
+    end
 
     local eggName = egg.Name
     isGrabbing = true
     setStatus("กำลังไปเก็บ " .. eggName, C.Accent)
 
     -- จุดยืนข้างไข่ : อิง ProximityPrompt ถ้ามี (จุดที่เกมให้กดเก็บจริง)
+    --    🔄 เรียกซ้ำได้เมื่อเปลี่ยน instance ไข่ระหว่างทาง (อ่าน "ของสด" ใหม่ทุกครั้ง)
     local interactPart = targetPart
-    pcall(function()
-        local prompt = egg:FindFirstChildWhichIsA("ProximityPrompt", true)
-        if prompt and prompt.Parent then
-            local pp = prompt.Parent
-            if pp:IsA("BasePart") then interactPart = pp
-            elseif pp:IsA("Attachment") and pp.Parent and pp.Parent:IsA("BasePart") then
-                interactPart = pp.Parent
+    local stands = nil
+    local function refreshTarget()
+        targetPart = eggPart(egg) or targetPart
+        interactPart = targetPart
+        pcall(function()
+            local prompt = egg:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if prompt and prompt.Parent then
+                local pp = prompt.Parent
+                if pp:IsA("BasePart") then interactPart = pp
+                elseif pp:IsA("Attachment") and pp.Parent and pp.Parent:IsA("BasePart") then
+                    interactPart = pp.Parent
+                end
             end
-        end
-    end)
-
-    -- จุดยืนข้างไข่ (eggStandOffsets) — แยกเป็นฟังก์ชันของตัวเอง เผื่อใช้ซ้ำภายหลัง
-    local stands = eggStandOffsets(interactPart)
+        end)
+        stands = eggStandOffsets(interactPart)        -- จุดยืนรอบไข่ (ของเดิม)
+    end
+    refreshTarget()
 
     local beforeCount, beforeInHand = countOwnedEggs(eggName)
 
     -- 🌋 แยกทาง : Volcanic ต้องเข้าถ้ำ (ทัวร์ประตู → ได้บัฟ → บินเข้าตามเส้นทางออก "กลับด้าน")
     --    ไข่ปกติ = วาร์ปไปหาไข่ตรง ๆ เหมือนเดิม
     local isVolc = string.find(string.lower(eggName), "volcanic", 1, true) ~= nil
+    local stopClip = nil
 
     if isVolc then
         local h0v = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
@@ -1739,21 +2239,55 @@ local function grabAndReturn(egg)
         end
         logLine("[>] เข้าถ้ำถึง " .. eggName .. " (ทางดำตรง ๆ เดิม " .. dToV .. " studs)")
     else
-        -- ⚡ วาร์ปไปหาไข่ทันที (มือเปล่า — ยังไม่ถืออะไร)
-        do
+        -- ⚡ วาร์ปไปหาไข่ + "ยืนยันว่าไปถึงตำแหน่งจริง" (แก้บั๊ก : วาร์ปแล้วไม่เจอทั้งที่ไข่มีอยู่)
+        stopClip = startNoClip()          -- noclip "ก่อน" วาร์ป → ไม่ติดอยู่ในผนัง/ตัวไข่ใบใหญ่
+        local okArrived = false
+        for try = 1, 3 do
             local h0 = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-            local dTo = h0 and math.floor((interactPart.Position - h0.Position).Magnitude) or 0
-            local base0 = interactPart.Position
-            local sp0 = base0 + stands[1]
-            local okTP = teleportTo(CFrame.lookAt(sp0, Vector3.new(base0.X, sp0.Y, base0.Z)))
-            task.wait(0.2)
-            logLine("[>] วาร์ปไป " .. eggName .. " (" .. dTo .. " studs)"
-                .. (okTP and "" or " ล้มเหลว"))
+            if not h0 then break end
+            local live = resolveLiveEgg(egg, eggName)   -- 🔄 อ่านของ "สด" ทุกรอบ (กัน reference เก่า)
+            if not live then
+                logLine("[X] วาร์ปไปแล้วไม่เจอไข่ : " .. eggName .. " หายจากแมพก่อนวาร์ป (รอบ " .. try .. ")")
+                break
+            end
+            egg = live
+            refreshTarget()                             -- อ่านตำแหน่ง/จุดยืนใหม่จาก instance สด
+            local base = interactPart.Position
+            local dTo = math.floor((base - h0.Position).Magnitude)
+            local sp = base + stands[1]
+            teleportTo(CFrame.lookAt(sp, Vector3.new(base.X, sp.Y, base.Z)))
+            task.wait(0.25)
+
+            -- ✅ ตรวจระยะ "จริง" หลังวาร์ป — ถ้าห่างเกิน = ยังไม่ถึง → วาร์ปซ้ำ (สูงสุด 3 รอบ)
+            local h1 = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+            local part2 = eggPart(egg)
+            if h1 and part2 then
+                local dNow = (h1.Position - part2.Position).Magnitude
+                -- รัศมี "ถึง" = กว้างพอสำหรับไข่ใบใหญ่ (กึ่งเส้นทแยงของ Part + 12) แต่ไม่ต่ำกว่า 40
+                local reach = math.max(40, part2.Size.Magnitude / 2 + 12)
+                if dNow <= reach then
+                    okArrived = true
+                    logLine("[>] วาร์ปไป " .. eggName .. " (" .. dTo .. " -> " .. math.floor(dNow) .. " studs)")
+                    break
+                end
+                logLine("[X] วาร์ปไปแล้วไม่เจอไข่ : ห่าง " .. math.floor(dNow)
+                    .. " studs (รอบ " .. try .. ") -> วาร์ปซ้ำ")
+            else
+                logLine("[X] วาร์ปไปแล้วไม่เจอไข่ : อ่านตำแหน่ง " .. eggName
+                    .. " ไม่ได้ (รอบ " .. try .. ")")
+            end
+        end
+        if not okArrived then
+            stopClip()
+            isGrabbing = false
+            setStatus("ไปไม่ถึง " .. eggName, C.Red)
+            logLine("[X] ล้มเหลว : วาร์ปไปไม่ถึง " .. eggName .. " (3 รอบ) -> ข้ามรอบนี้")
+            return false
         end
     end
 
     -- ⏳ พยายามเก็บให้ได้ภายในเวลาที่กำหนด
-    local stopClip = startNoClip()
+    if not stopClip then stopClip = startNoClip() end
     local candIdx, attempt = 1, 0
     local startT = os.clock()
     local got = false
@@ -1954,8 +2488,21 @@ local function showEggPreview()
         return
     end
 
-    -- 🎯 เอาใบที่ "ฟาร์มจะไปเก็บ" — ยังไม่ได้ติ๊กไข่ก็ใช้ใบแรกที่เจอในแมพ
-    local target = scanQueue()
+    -- 🎯 "ดูข้อมูล" = ดูไข่ที่ "แตะเลือก" (แยกจากการกดค้างเพื่อใส่คิว)
+    --    · แตะเลือกไว้ → ดูได้เลยทันที (ไม่ต้องพึ่งคิวฟาร์ม)
+    --    · ยังไม่แตะ → ใช้คิว/ไข่ใบแรกที่เจอในแมพ (แบบเดิม)
+    local target = nil
+    if currentTargetEgg then
+        local arr = scanAll()[currentTargetEgg]
+        if arr and arr[1] then target = arr[1] end
+        if not target then
+            setStatus("ไข่ที่เลือกยังไม่เกิดในแมพ", C.Amber)
+            logLine("[👀] " .. currentTargetEgg .. " ยังไม่เกิดในแมพ -> ดูข้อมูลไม่ได้ (รอเกิดแล้วกดใหม่)")
+            return
+        end
+    else
+        target = scanQueue()
+    end
     if not target then
         for _, arr in pairs(scanAll()) do
             if arr and #arr > 0 then target = arr[1]; break end
@@ -1963,7 +2510,7 @@ local function showEggPreview()
     end
     if not target then
         setStatus("ยังไม่มีไข่เกิดในแมพ", C.Red)
-        logLine("[👀] ยังไม่มีไข่ในแมพ - ดึงโมเดลไม่ได้")
+        logLine("[X] ยังไม่มีไข่ในแมพ - ดึงโมเดล/ดูข้อมูลไม่ได้")
         return
     end
 
@@ -2090,8 +2637,8 @@ task.spawn(function()
                 end
             else
                 -- 🎯 โหมด "ใบเดียว" : ไม่พบไข่เหลือในแมพ → ฟาร์มเสร็จแล้ว "หยุดเอง"
-                --    (โหมดออโต้ = ไม่หยุด รอไข่เกิดใหม่ไปเรื่อย ๆ)
-                if not isGrabbing and not hasAutoMode() then
+                --    (เปิด 🔄 ฟาร์มออโต้ หรือ คิวแบบกดค้าง = ไม่หยุด รอไข่เกิดใหม่ไปเรื่อย ๆ)
+                if not isGrabbing and not (autoFarmOn or hasAutoMode()) then
                     if onceNoTargetAt == 0 then
                         onceNoTargetAt = os.clock()
                     elseif os.clock() - onceNoTargetAt > ONCE_END_WAIT then
@@ -2148,13 +2695,14 @@ local function eggTextureOf(obj)
 end
 
 -- ============================================================
--- 👁️ ESP ไข่ : กล่องสีตามความหายาก + ป้ายชื่อ/ระยะ เหนือไข่ทุกใบในแมพ
---    ⚠️ กติกาตามคำสั่ง : "ใช้ได้เฉพาะระบบ คลิกเลือกไข่แบบปกติ (ใบเดียว)"
---       ถ้ามีไข่ที่ตั้งด้วยการ "กดค้าง 3 วิ = ออโต้ฟาร์ม" → ESP ปิดตัวเองทันที
---    · Highlight อยู่ใน folder ของ workspace (Adornee = โมเดลไข่) → เห็นทะลุกำแพง
---    · BillboardGui เป็น "ลูกของโมเดลไข่" → ถูกล้างอัตโนมัติตอนไข่หาย/ถูกเก็บ
---    · สร้าง/ลบ = ใช้ผลสแกนรอบ 1.2 วิ (ไม่เรียก scanAll ซ้ำ → ไม่เปลืองเพิ่ม)
---    · ข้อความระยะ + 🎯 = อัปเดตทุก 0.5 วิ (เขียนแค่ Text ไม่สแกนแมพ)
+-- 👁️ ESP ไข่ — "ยกระบบ ESP ของ 2.lua มาใส่" (ตามคำสั่งรอบนี้)
+--    กลไกเหมือนไฟล์ 2 ทุกบรรทัด : BillboardGui 3 บรรทัด (ชื่อ [ระดับ] / น้ำหนัก / ระยะ)
+--    · ป้ายอยู่ใน espFolder ของ workspace + Adornee = ชิ้นส่วนไข่ → AlwaysOnTop เห็นทะลุ
+--    · ทุก 1.2 วิ  = ล้างแล้วสร้างใหม่จากผลสแกน espLast (ไม่เรียก scanAll ซ้ำ → ไม่เปลือง)
+--    · ทุก 0.25 วิ = เขียนเฉพาะบรรทัด "ระยะ" และเฉพาะตอนค่าเปลี่ยน (ไม่กิน FPS)
+--    ส่วนที่ 1 — ESP ปกติ (ปุ่ม 👁️ เปิด/ปิด) : ไข่ที่แตะเลือก (🎯) + ไข่ในคิว
+--    ส่วนที่ 2 — ESP ถาวร : Giant Egg (👑) โชว์ตลอดเวลา ไม่สนสวิตช์ 👁️
+--    · น้ำหนัก : อ่านจาก Attribute/Value/ป้ายในโมเดล (ฟังก์ชันเดียวกับ 2.lua)
 -- ============================================================
 local espFolderName = "EGG_ESP_LITE"
 local espOld = workspace:FindFirstChild(espFolderName)
@@ -2162,9 +2710,8 @@ if espOld then espOld:Destroy() end                 -- กันซ้อนเ�
 local espFolder = Instance.new("Folder", workspace)
 espFolder.Name = espFolderName
 
-local espNodes      = {}     -- [egg] = {hl, bb, nameLbl, distLbl, short, rarity, eggName, sel, txt}
-local espLast       = nil     -- ผลสแกนล่าสุดจากลูป 🌤️ (เก็บไว้ใช้ ไม่สแกนซ้ำ)
-local espGate       = nil     -- สถานะก่อนหน้า → ใช้ log เมื่อสลับเปิด/ปิด
+local activeBillboards = {}   -- { {Label=ป้ายระยะ, Part=ชิ้นส่วนไข่, D=ค่ารอบก่อน}, ... }
+local espLast       = nil     -- ผลสแกนจากลูป 🌤️ 1.2 วิ (เก็บไว้ใช้ ไม่สแกนซ้ำ)
 local espErrLogged  = false
 local espCount      = -1      -- จำนวนจุดรอบก่อนหน้า (log เมื่อเปลี่ยนค่า)
 local espWarned     = false
@@ -2176,182 +2723,185 @@ pcall(function()
         if d.Name == "EspBox" or d.Name == "EspTag" then d:Destroy() end
     end
 end)
-logLine("[👁️] ระบบ ESP โหลดแล้ว - รอลูป 0.5 วิ")
+logLine("[👁️] ระบบ ESP แบบ 2.lua โหลดแล้ว - ป้าย 3 บรรทัด (ชื่อ/น้ำหนัก/ระยะ)")
 
--- เปิดเฉพาะ "ใบเดียว" — มีไข่ที่เป็นออโต้ (กดค้าง) = ปิด
-local function espWanted()
-    return not hasAutoMode()
+local function clearESP()
+    espFolder:ClearAllChildren()
+    activeBillboards = {}
 end
 
-local function espPos(egg)
+-- ⚖️ อ่านน้ำหนักไข่ (ยกมาจาก 2.lua ทุกบรรทัด : Attribute → Value → ป้ายในโมเดล → ปริมาตร)
+local function parseEggWeight(egg)
+    local maxFoundWeight = 0
+    for k, v in pairs(egg:GetAttributes()) do
+        local lk = string.lower(k)
+        if (lk == "weight" or lk == "multiplier" or lk == "mass" or lk == "kg") and type(v) == "number" then return v end
+    end
+    for _, v in pairs(egg:GetDescendants()) do
+        if v:IsA("NumberValue") or v:IsA("IntValue") then
+            local n = string.lower(v.Name)
+            if n == "weight" or n == "multiplier" or n == "mass" or n == "kg" then
+                if v.Value > maxFoundWeight then maxFoundWeight = v.Value end
+            end
+        elseif v:IsA("TextLabel") and v.Visible then
+            local txt = string.lower(v.Text)
+            local numStr = string.match(txt, "([%d%.]+)%s*kg")
+            if not numStr then
+                local lbsStr = string.match(txt, "([%d%.]+)%s*lbs")
+                if lbsStr then
+                    local lbsNum = tonumber(lbsStr)
+                    if lbsNum then numStr = tostring(lbsNum * 0.453592) end
+                end
+            end
+            if numStr then
+                local num = tonumber(numStr)
+                if num and num > maxFoundWeight then maxFoundWeight = num end
+            end
+        end
+    end
+    if maxFoundWeight > 0 then return maxFoundWeight end
+    local part = egg:FindFirstChild("Handle") or egg:FindFirstChild("EggBase") or egg.PrimaryPart or egg:FindFirstChildWhichIsA("BasePart")
+    if part then
+        local vol = part.Size.X * part.Size.Y * part.Size.Z
+        return math.floor(vol * 5) / 10
+    end
+    return 0
+end
+
+local function getFormattedWeight(egg)
+    local w = parseEggWeight(egg)
+    if w > 0 then return string.format("%.1f กิโลกรัม", w) else return "?? กิโลกรัม" end
+end
+
+-- จุดผูกป้าย : ไข่เป็น Tool ต้องผูกกับ Handle (BillboardGui ที่ผูกกับ Tool โดยตรงไม่แสดงผล)
+local function espAnchor(egg)
     local p = eggPart(egg)
-    if p then return p.Position end
-    if egg:IsA("Model") then return egg:GetPivot().Position end
-    if egg:IsA("BasePart") then return egg.Position end
+    if p then return p end
+    if egg:IsA("BasePart") then return egg end
     return nil
 end
 
-local function espCreate(row, egg)
-    local rarity, short, fullName = row[2], row[4], row[1]
+-- 🏷️ สร้างป้าย 3 บรรทัด (เหมือน createTextESPOnly ของ 2.lua + ตรา 🎯/👑 ของ 1.lua)
+local function createTextESPOnly(egg, part, row, badge)
+    local rarity, fullName = row[2], row[1]
     local col = RARITY_COLOR[rarity] or C.Sub
 
-    local hl = Instance.new("Highlight")
-    hl.Name = "EspBox"
-    hl.Adornee = egg
-    hl.FillColor = col
-    hl.FillTransparency = 0.45          -- ให้เห็นชัด (เดิม 0.72 จางจนแยกไม่ออก)
-    hl.OutlineColor = col
-    hl.OutlineTransparency = 0
-    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    hl.Parent = espFolder
-
-    local bb = Instance.new("BillboardGui")
-    bb.Name = "EspTag"
-    bb.Size = UDim2.new(0, 132, 0, 30)
-    bb.StudsOffset = UDim2.new(0, 0, 3.4, 0)
-    bb.AlwaysOnTop = true
-    bb.LightInfluence = 0
-    bb.MaxDistance = 1000000          -- ไม่ตัดระยะ (เห็นข้ามแผนที่)
-    bb.ResetOnSpawn = false
+    local bg = Instance.new("BillboardGui")
+    bg.Name = "EspTag"
+    bg.Adornee = part; bg.Size = UDim2.new(0, 200, 0, 45); bg.AlwaysOnTop = true
+    bg.LightInfluence = 0; bg.MaxDistance = 1000000; bg.ResetOnSpawn = false
+    bg.StudsOffset = Vector3.new(0, 2.5, 0); bg.Parent = espFolder
 
     local nameLbl = Instance.new("TextLabel")
-    nameLbl.Size = UDim2.new(1, 0, 0, 15)
-    nameLbl.BackgroundTransparency = 1
-    nameLbl.Font = Enum.Font.GothamBold
-    nameLbl.TextSize = 11
-    nameLbl.TextColor3 = col
-    nameLbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-    nameLbl.TextStrokeTransparency = 0.35
-    nameLbl.Text = (FALLBACK_GLYPH[rarity] or "🥚") .. " " .. short
-    nameLbl.Parent = bb
+    nameLbl.Size = UDim2.new(1, 0, 0, 15); nameLbl.BackgroundTransparency = 1
+    nameLbl.TextColor3 = (badge == "👑 ") and Color3.fromRGB(255, 220, 50) or col
+    nameLbl.TextStrokeTransparency = 0.2; nameLbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    nameLbl.Text = (badge or "") .. (FALLBACK_GLYPH[rarity] or "🥚") .. " "
+        .. fullName .. " [" .. rarity .. "]"
+    nameLbl.Font = Enum.Font.GothamBold; nameLbl.TextSize = 12; nameLbl.Parent = bg
+
+    local weightLbl = Instance.new("TextLabel")
+    weightLbl.Size = UDim2.new(1, 0, 0, 15); weightLbl.Position = UDim2.new(0, 0, 0, 15)
+    weightLbl.BackgroundTransparency = 1; weightLbl.TextColor3 = Color3.fromRGB(255, 215, 0)
+    weightLbl.TextStrokeTransparency = 0.2; weightLbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    weightLbl.Text = "⚖️ " .. getFormattedWeight(egg); weightLbl.Font = Enum.Font.GothamBold
+    weightLbl.TextSize = 11; weightLbl.Parent = bg
 
     local distLbl = Instance.new("TextLabel")
-    distLbl.Size = UDim2.new(1, 0, 0, 14)
-    distLbl.Position = UDim2.new(0, 0, 0, 14)
-    distLbl.BackgroundTransparency = 1
-    distLbl.Font = Enum.Font.Gotham
-    distLbl.TextSize = 10
-    distLbl.TextColor3 = Color3.fromRGB(235, 240, 255)
-    distLbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-    distLbl.TextStrokeTransparency = 0.5
-    distLbl.Text = "..."
-    distLbl.Parent = bb
+    distLbl.Size = UDim2.new(1, 0, 0, 15); distLbl.Position = UDim2.new(0, 0, 0, 30)
+    distLbl.BackgroundTransparency = 1; distLbl.TextColor3 = Color3.fromRGB(0, 229, 255)
+    distLbl.TextStrokeTransparency = 0.2; distLbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    distLbl.Text = "📍 ..."; distLbl.Font = Enum.Font.GothamBold; distLbl.TextSize = 11; distLbl.Parent = bg
 
-    bb.Parent = egg        -- ผูกกับโมเดลไข่ → ถูกล้างอัตโนมัติตอนไข่หาย
-
-    espNodes[egg] = {
-        hl = hl, bb = bb, nameLbl = nameLbl, distLbl = distLbl,
-        short = short, rarity = rarity, eggName = fullName,
-        sel = false, txt = nil,
-    }
+    table.insert(activeBillboards, { Label = distLbl, Part = part, D = nil })
 end
 
-local function espDestroy(egg)
-    local node = espNodes[egg]
-    if not node then return end
-    if node.hl then node.hl:Destroy() end
-    if node.bb then node.bb:Destroy() end
-    espNodes[egg] = nil
-end
-
-local function espClear()
-    for egg in pairs(espNodes) do espDestroy(egg) end
-end
-
--- ซิงก์ชุด ESP ให้ตรงกับผลสแกน (สร้างของใหม่ / ลบของที่หายจากแมพ)
-local function espSync(byName)
-    if not byName then return end
-    local seen = {}
+-- 🔁 ล้าง + สร้างป้ายใหม่จากผลสแกน (ทุก 1.2 วิ) — เลือกไข่ตามนโยบาย 2 ส่วนด้านบน
+local function espRefresh(byName)
+    clearESP()
+    local target = currentTargetEgg
     for _, row in ipairs(EGG_DATA) do
-        local arr = byName[row[1]]
-        if arr then
-            for i = 1, #arr do
-                local egg = arr[i]
-                if egg and egg.Parent then
-                    seen[egg] = true
-                    if not espNodes[egg] then espCreate(row, egg) end
+        local nm = row[1]
+        -- 👑 ส่วนถาวร : Giant = เสมอ · 👁️ ส่วนปกติ : ไข่ที่แตะเลือก + ไข่ในคิว
+        local want = (nm == "Giant Egg")
+            or (espEnabled and (nm == target or table.find(selectedEggs, nm) ~= nil))
+        if want then
+            local arr = byName[nm]
+            if arr then
+                for i = 1, #arr do
+                    local egg = arr[i]
+                    if egg and egg.Parent then
+                        local part = espAnchor(egg)
+                        if part then
+                            local badge = (nm == target) and "🎯 "
+                                or ((nm == "Giant Egg") and "👑 " or "")
+                            createTextESPOnly(egg, part, row, badge)
+                        end
+                    end
                 end
             end
         end
     end
-    for egg in pairs(espNodes) do
-        if not seen[egg] then espDestroy(egg) end   -- หายจากแมพ / ถูกเก็บไปแล้ว
-    end
 end
 
--- อัปเดตป้ายระยะทาง + 🎯 ไข่ที่เลือก (เขียนเฉพาะตอนค่าเปลี่ยน)
-local function espTick()
+-- 📍 อัปเดตระยะ — เขียนเฉพาะตอนค่าเปลี่ยน (ไม่สุ่มเขียนทุกเทิร์น)
+local function espDistTick()
+    if #activeBillboards == 0 then return end
     local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-    local sel = {}
-    for i = 1, #selectedEggs do sel[selectedEggs[i]] = true end
-
-    for egg, node in pairs(espNodes) do
-        if node.bb and node.bb.Parent then
-            local pos = espPos(egg)
-            if pos then
-                local d = math.floor((pos - hrp.Position).Magnitude + 0.5)
-                if node.txt ~= d then
-                    node.txt = d
-                    node.distLbl.Text = d .. " studs"
-                end
-            end
-            local isSel = sel[node.eggName] == true
-            if isSel ~= node.sel then
-                node.sel = isSel
-                node.nameLbl.Text = (isSel and "🎯 " or "")
-                    .. (FALLBACK_GLYPH[node.rarity] or "🥚") .. " " .. node.short
-                node.hl.FillTransparency = isSel and 0.2 or 0.45
+    for _, item in ipairs(activeBillboards) do
+        local part, lbl = item.Part, item.Label
+        if part and part.Parent and lbl and lbl.Parent then
+            local d = math.floor((hrp.Position - part.Position).Magnitude + 0.5)
+            if item.D ~= d then
+                item.D = d
+                lbl.Text = string.format("📍 %dm", d)
             end
         end
     end
 end
 
--- 🔁 ลูป ESP : ทุก 0.5 วิ — เปิด/ปิดตามโหมดเลือก, ซิงก์จากผลสแกน, อัปเดตป้าย
+-- 🔁 ลูป ESP : ทุก 1.2 วิ — ล้าง+สร้างจาก espLast (สำรอง = สแกนเองถ้าลูปหลักยังไม่มา)
 task.spawn(function()
     while true do
-        task.wait(0.5)
+        task.wait(1.2)
         if not sg.Parent then                -- ปิดหน้าต่างแล้ว = เก็บกวาด ESP ทิ้ง
-            espClear()
+            pcall(clearESP)
             espFolder:Destroy()
             break
         end
-        local on = espWanted()
-        if on ~= espGate then
-            espGate = on
-            logLine(on and "[👁️] ESP ไข่ เปิด (โหมดใบเดียว)"
-                or "[👁️] ESP ไข่ ปิด (กดค้างออโต้ฟาร์ม)")
+        if not espLast and os.clock() - espT0 > 2 then
+            local okF, resF = pcall(scanAll)
+            if okF and resF then espLast = resF end
         end
-        if on then
-            -- 🆘 ถ้าลูปสแกนหลักยังไม่ส่งผลมา (เพิ่งโหลด / พัง) → เองสแกนเอง ไม่พึ่งใคร
-            if not espLast and os.clock() - espT0 > 2 then
-                local okF, resF = pcall(scanAll)
-                if okF and resF then espLast = resF end
+        if espLast then
+            local okS, errS = pcall(espRefresh, espLast)
+            if not okS and not espErrLogged then
+                espErrLogged = true
+                logLine("[X] ESP ผิดพลาด : " .. tostring(errS))
             end
-            if espLast then
-                local okS, errS = pcall(espSync, espLast)
-                if not okS and not espErrLogged then
-                    espErrLogged = true
-                    logLine("[X] ESP ผิดพลาด : " .. tostring(errS))
-                end
-            end
-            pcall(espTick)
+        end
+        local n = #activeBillboards
+        if n ~= espCount then
+            espCount = n
+            if n > 0 then logLine("[👁️] ESP แสดง " .. n .. " จุดบนจอ") end
+        end
+        if n == 0 and espEnabled and currentTargetEgg
+            and not espWarned and os.clock() - espT0 > 5 then
+            espWarned = true
+            logLine("[!] ESP สร้างไม่ได้เลย - ผลสแกน"
+                .. (espLast and " มี แต่ไม่พบไข่ที่เลือกในนั้น" or " ยังไม่มา"))
+        end
+    end
+end)
 
-            -- 📊 รายงานจำนวนจุดที่สร้างได้ — ใช้ฟันธงว่าติดที่ "สร้าง" หรือที่ "แสดงผล"
-            local n = 0
-            for _ in pairs(espNodes) do n = n + 1 end
-            if n ~= espCount then
-                espCount = n
-                if n > 0 then logLine("[👁️] ESP สร้าง " .. n .. " จุดบนจอ") end
-            end
-            if n == 0 and not espWarned and os.clock() - espT0 > 5 then
-                espWarned = true
-                logLine("[!] ESP สร้างไม่ได้เลย - ผลสแกน"
-                    .. (espLast and " มี แต่ไม่พบไข่ในนั้น" or " ยังไม่มา"))
-            end
-        else
-            espClear()
-        end
+-- ⏱️ ลูประยะ : ทุก 0.25 วิ — แยกจากลูปสร้าง (เดินถี่ได้โดยไม่ต้องล้าง/สร้างป้ายใหม่)
+task.spawn(function()
+    while true do
+        task.wait(0.25)
+        if not sg.Parent then break end
+        if not espFolder.Parent then break end
+        pcall(espDistTick)
     end
 end)
 
@@ -2359,6 +2909,53 @@ end)
 --    · จุดเหลืองมุมซ้ายบนของรูปไข่ = มีอยู่จริงตอนนี้
 --    · บรรทัดใต้ตาราง = สรุปรายชื่อ + จำนวนฟอง
 --    ⚠️ ไม่เขียน Label ตรง ๆ — เขียนลง U.* แล้วรอ applyUI() วาดทุกเฟรม
+-- 🟡🖼️ อัปเดต "จุดไข่เกิดอยู่" บนตาราง + ดูดรูปจากโมเดลในแมพ
+--    แยกเป็นฟังก์ชันเพื่อเรียกผ่าน pcall : error แม้แต่ครั้งเดียวจะไม่ทำให้ลูป 1.2 วิทั้งลูปตาย
+--    (ลูปตาย = espLast ค้าง → ESP + แจ้งเตือน หยุดอัปเดตถาวร = "ESP ใช้งานไม่ได้จริง")
+local function updateSpawnTiles(byName)
+    local parts, shown, total, types = {}, 0, 0, 0
+    for _, row in ipairs(EGG_DATA) do
+        local nm, short = row[1], row[4]
+        local arr = byName[nm]
+        local t = tileByEgg[nm]
+        local alive = (arr and #arr > 0) and true or false
+        if t then
+            t.spawnNow = alive            -- 🟡 จุดมุมซ้ายบน (applyUI วาดทุกเฟรม)
+
+            -- 🖼️ ยังไม่มีรูป → ลองดูดจากโมเดลในแมพ (ลองสูงสุด 8 รอบ เผื่อ streaming ยังไม่โหลด)
+            if alive and not t.hasImg and t.tries < 8 then
+                t.tries = t.tries + 1
+                local u = eggTextureOf(arr[1])
+                if u then
+                    t.hasImg = true
+                    t.img.Image = u
+                    t.img.Visible = true
+                    t.fb.Visible = false
+                    logLine("[🖼️] ได้รูป " .. short .. " จากโมเดลในแมพ")
+                elseif t.tries >= 8 then
+                    logLine("[!] " .. short .. " หาไม่เจอ -> ใช้ไอคอนสำรอง")
+                end
+            end
+        end
+        if alive then
+            total = total + #arr
+            types = types + 1
+            if shown < 5 then
+                table.insert(parts, short .. " x" .. #arr)
+                shown = shown + 1
+            end
+        end
+    end
+    if total == 0 then
+        U.spawn = "ยังไม่มีไข่เกิดอยู่ในแมพ"
+        U.spawnColor = C.Muted
+    else
+        local extra = (types > shown) and (" +" .. (types - shown) .. " ชนิด") or ""
+        U.spawn = "ในแมพ " .. total .. " ฟอง : " .. table.concat(parts, ", ") .. extra
+        U.spawnColor = C.Amber
+    end
+end
+
 task.spawn(function()
     while true do
         task.wait(1.2)
@@ -2371,47 +2968,9 @@ task.spawn(function()
         local ok, byName = pcall(scanAll)
         if ok and byName then
             espLast = byName                  -- 👁️ เก็บไว้ให้ระบบ ESP (ไม่เรียก scanAll ซ้ำ)
-            local parts, shown, total, types = {}, 0, 0, 0
-            for _, row in ipairs(EGG_DATA) do
-                local nm, short = row[1], row[4]
-                local arr = byName[nm]
-                local t = tileByEgg[nm]
-                local alive = (arr and #arr > 0) and true or false
-                if t then
-                    t.spawnNow = alive            -- 🟡 จุดมุมซ้ายบน (applyUI วาดทุกเฟรม)
-
-                    -- 🖼️ ยังไม่มีรูป → ลองดูดจากโมเดลในแมพ (ลองสูงสุด 8 รอบ เผื่อ streaming ยังไม่โหลด)
-                    if alive and not t.hasImg and t.tries < 8 then
-                        t.tries = t.tries + 1
-                        local u = eggTextureOf(arr[1])
-                        if u then
-                            t.hasImg = true
-                            t.img.Image = u
-                            t.img.Visible = true
-                            t.fb.Visible = false
-                            logLine("[🖼️] ได้รูป " .. short .. " จากโมเดลในแมพ")
-                        elseif t.tries >= 8 then
-                            logLine("[!] " .. short .. " หาไม่เจอ -> ใช้ไอคอนสำรอง")
-                        end
-                    end
-                end
-                if alive then
-                    total = total + #arr
-                    types = types + 1
-                    if shown < 5 then
-                        table.insert(parts, short .. " x" .. #arr)
-                        shown = shown + 1
-                    end
-                end
-            end
-            if total == 0 then
-                U.spawn = "ยังไม่มีไข่เกิดอยู่ในแมพ"
-                U.spawnColor = C.Muted
-            else
-                local extra = (types > shown) and (" +" .. (types - shown) .. " ชนิด") or ""
-                U.spawn = "ในแมพ " .. total .. " ฟอง : " .. table.concat(parts, ", ") .. extra
-                U.spawnColor = C.Amber
-            end
+            -- 🛡️ เรียกผ่าน pcall : ถ้าอัปเดตไทล์ error ลูปนี้ต้อง "ไม่ตาย" (กัน ESP หยุดอัปเดตถาวร)
+            local pok, perr = pcall(updateSpawnTiles, byName)
+            if not pok then logLine("[X] ลูปสแกนไข่ 1.2 วิ error : " .. tostring(perr)) end
         end
     end
 end)
@@ -2426,9 +2985,17 @@ startBtn.Activated:Connect(function()
     end
 
     if #selectedEggs == 0 then
-        setStatus("ยังไม่ได้เลือกไข่", C.Red)
-        logLine("[X] แตะเลือกไข่ก่อนกดเริ่ม (กดค้าง 3 วิ = โหมดออโต้)")
-        return
+        -- 🎯 แตะเลือกไว้อย่างเดียว (ยังไม่ได้กดค้างใส่คิว) → ใส่เป้าหมายลงคิวใบเดียวให้เลย
+        if currentTargetEgg then
+            table.insert(selectedEggs, currentTargetEgg)
+            eggMode[currentTargetEgg] = "once"
+            refreshSelection()
+            logLine("[>] ใส่เป้าหมายลงคิวใบเดียว : " .. currentTargetEgg)
+        else
+            setStatus("ยังไม่ได้เลือกไข่", C.Red)
+            logLine("[X] แตะเลือกไข่ก่อนกดเริ่ม (แตะ = ใบเดียว · กดค้าง 3 วิ = คิวหลายใบ)")
+            return
+        end
     end
 
     -- 🏠 หาแปลงตอนกดเริ่มครั้งเดียว (จำไว้ใช้ทุกรอบ)
@@ -2448,11 +3015,32 @@ startBtn.Activated:Connect(function()
     startBtn.BackgroundColor3 = C.Red
     setDot(true)
     setStatus("กำลังฟาร์ม ...", C.Green)
-    if hasAutoMode() then
+    if autoFarmOn or hasAutoMode() then
         logLine("[>] เริ่มฟาร์ม ออโต้ ∞ - " .. #selectedEggs .. " ไข่ในคิว (ไม่หยุดเอง)")
     else
         logLine("[>] เริ่มฟาร์ม ใบเดียว - " .. (selectedEggs[1] or "?")
             .. " (เก็บหมดในแมพแล้วหยุดเอง)")
+    end
+end)
+
+-- 🎮 ปุ่มภาพกาก "3 ระดับ" : กดวน → ปิด → 1 เบา → 2 กลาง → 3 กากสุด → ปิด
+gfxBtn.Activated:Connect(function()
+    local lvl = (GFX.getLevel() + 1) % 4        -- 0 → 1 → 2 → 3 → 0
+    GFX.setLevel(lvl)
+    gfxBtn.Text = GFX.text[lvl + 1]
+    gfxBtn.BackgroundColor3 = GFX.color[lvl + 1]
+    if lvl == 0 then
+        setStatus("ภาพกาก: ปิด")
+        logLine("[🎮] คืนกราฟิกปกติแล้ว (ทุกอย่างกลับเหมือนเดิม)")
+    elseif lvl == 1 then
+        setStatus("ภาพกาก ระดับ 1", C.Green)
+        logLine("[🎮] ภาพกาก ระดับ 1 (เบา) : ปิดเงา/แสงนุ่ม/PostFX + QualityLevel ต่ำ")
+    elseif lvl == 2 then
+        setStatus("ภาพกาก ระดับ 2", C.Amber)
+        logLine("[🎮] ภาพกาก ระดับ 2 (กลาง) : + หญ้า/น้ำ/อนุภาค/ไฮไลต์/เงาสะท้อน/ไม่วาดเงา")
+    else
+        setStatus("ภาพกาก ระดับ 3", C.Red)
+        logLine("[🎮] ภาพกาก ระดับ 3 (กากสุด) : + ลบเท็กซ์เจอร์/PBR/ท้องฟ้า/ต้นไม้ (จัดเต็มแบบไฟล์ 2)")
     end
 end)
 
@@ -2468,6 +3056,251 @@ dipBtn.Activated:Connect(function()
         logLine("[🌋] ปิดดรอปลาวา - เก็บแล้วกลับแปลงเลย")
         setStatus("ลาวา : ปิด")
     end
+end)
+
+-- ============================================================
+-- 👁️ / 🔔 / 👑 ปุ่มพิเศษ (ระบบจากไฟล์ 2 ปรับให้เข้ากับ EGG LITE)
+-- ============================================================
+
+-- 🔄 สวิตช์ "ฟาร์มออโต้" (ข้างปุ่ม ⚡) :
+--    · เปิด  = ฟาร์มต่อเนื่อง ไม่หยุดเองเมื่อไข่หมดในแมพ (รอเกิดใหม่ไปเรื่อย ๆ)
+--    · ปิด   = แบบใบเดียว เก็บหมดในแมพแล้วหยุดเอง (เหมือนเดิม)
+autoBtn.Activated:Connect(function()
+    autoFarmOn = not autoFarmOn
+    autoBtn.Text = autoFarmOn and "🔄 ออโต้: เปิด" or "🔄 ออโต้: ปิด"
+    autoBtn.BackgroundColor3 = autoFarmOn and C.Green or Color3.fromRGB(107, 114, 128)
+    refreshSelection()   -- บรรทัดสถานะ/badge อัปเดตโหมดเป็น ∞ ทันที
+    logLine(autoFarmOn
+        and "[🔄] เปิดฟาร์มออโต้ - ไม่หยุดเองเมื่อไข่หมดในแมพ"
+        or  "[🔄] ปิดฟาร์มออโต้ - ฟาร์มเสร็จแล้วหยุดเอง")
+end)
+
+-- 👁️ สวิตช์ ESP ปกติ — ส่วน Giant Egg ยังโชว์ตลอดเวลาแม้ปิดสวิตช์นี้
+espBtn.Activated:Connect(function()
+    espEnabled = not espEnabled
+    espBtn.Text = espEnabled and "👁️ ESP: เปิด" or "👁️ ESP: ปิด"
+    espBtn.BackgroundColor3 = espEnabled and C.Accent or Color3.fromRGB(107, 114, 128)
+    refreshSelection()   -- บรรทัดสถานะมี "· 👁️ เปิด/ปิด" ต่อท้าย
+    logLine(espEnabled
+        and "[👁️] เปิด ESP ปกติ (ไข่ที่แตะเลือก + 👑 Giant ตลอดเวลา)"
+        or  "[👁️] ปิด ESP ปกติ (ยังเหลือ 👑 Giant โชว์ตลอดเวลา)")
+end)
+
+-- ------------------------------------------------------------
+-- 🔔 ระบบแจ้งเตือนเสียง + ป๊อปอัป (ย้ายจากระบบ 2 ทั้งชุด)
+--    · เสียง + ป๊อปอัป แสดง "1 นาที" หลังพบไข่ แล้วปิดตัวเองอัตโนมัติ
+--    · ข้ามไข่ที่ถูกติ๊ก "ฟาร์มออโต้" ไว้ (ฟาร์มอยู่แล้ว = ไม่ต้องแจ้ง)
+--    · แจ้งเฉพาะ Volcanic / Cherub / Solaris ที่เกิดจริงในแมพ
+--    ⚡ ลด CPU/FPS : ใช้ผลสแกนรอบ 1.2 วิ (espLast) ไม่สแกนแมพเพิ่มเอง
+-- ------------------------------------------------------------
+local NOTIFY_EGG = {
+    ["Volcanic Egg"] = true,
+    ["Cherub Egg"]   = true,
+    ["Solaris Egg"]  = true,
+}
+local notifiedEggs = {}   -- [instance ไข่] = true → ใบเดิมไม่แจ้งซ้ำ
+local isNotifying  = false
+local alertAt      = 0     -- ⏱️ เวลาที่เริ่มแจ้งเตือนรอบนี้ (ครบ 60 วิ = ปิดเอง)
+local notifySkipLogged = {} -- เคย log แล้ว (กันขึ้นซ้ำทุกวินาที)
+
+-- ❌ ไข่ใบนี้ถูกติ๊ก "ฟาร์มออโต้" ไว้ → ข้ามการแจ้งเตือน (ฟาร์มเองอยู่แล้ว ไม่ต้องเตือน)
+local function isAutoFarmed(name)
+    if eggMode[name] == "auto" then return true end
+    if autoFarmOn and table.find(selectedEggs, name) then return true end
+    return false
+end
+
+local function stopAlertNow()
+    if not isNotifying then return end
+    pcall(function() alertSound:Stop() end)
+    pcall(function() popupFrame.Visible = false end)
+    isNotifying = false
+end
+
+local function fireAlert(name)
+    if not isNotifying then pcall(function() alertSound.TimePosition = 0 end) end
+    isNotifying = true
+    alertAt = os.clock()               -- ⏱️ เริ่มนับ 1 นาทีจากตรงนี้
+    popupMsg.Text = "🎉 พบไข่แจ้งเตือน!\n[" .. name .. "]"
+    popupFrame.Visible = true
+    pcall(function() alertSound:Play() end)
+    logLine("[🔔] พบ " .. name .. " ในแมพ ! (แสดง 1 นาทีแล้วปิดเอง)")
+end
+
+notifyBtn.Activated:Connect(function()
+    notifyOn = not notifyOn
+    if notifyOn then
+        notifyBtn.Text = "🔔 แจ้งเตือน: เปิด"
+        notifyBtn.BackgroundColor3 = C.Green
+        notifiedEggs = {}
+        logLine("[🔔] เปิดแจ้งเตือนเสียง (Volcanic / Cherub / Solaris)")
+    else
+        notifyBtn.Text = "🔔 แจ้งเตือน: ปิด"
+        notifyBtn.BackgroundColor3 = C.Red
+        stopAlertNow()
+        logLine("[🔔] ปิดแจ้งเตือนเสียง")
+    end
+end)
+
+popupBtn.Activated:Connect(stopAlertNow)
+
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if not sg.Parent then stopAlertNow() break end
+        if notifyOn then
+            local byName = espLast
+            if not byName then          -- 🆘 ยังไม่มีผลสแกน (เพิ่งโหลด) → สแกนเองครั้งเดียว
+                local ok, res = pcall(scanAll)
+                if ok then byName = res end
+            end
+            if byName then
+                for name in pairs(NOTIFY_EGG) do
+                    if isAutoFarmed(name) then
+                        -- ⏭️ ถูกติ๊ก "ฟาร์มออโต้" ไว้ → ข้ามการแจ้งเตือน (ฟาร์มเองอยู่แล้ว)
+                        if not notifySkipLogged[name] then
+                            notifySkipLogged[name] = true
+                            logLine("[⏭️] ข้ามแจ้งเตือน " .. name .. " (อยู่ในโหมดฟาร์มออโต้)")
+                        end
+                    else
+                        local arr = byName[name]
+                        if arr then
+                            for _, egg in ipairs(arr) do
+                                if egg and egg.Parent and not notifiedEggs[egg] then
+                                    notifiedEggs[egg] = true
+                                    fireAlert(name)
+                                    break   -- รอบละใบเดียว (แบบระบบ 2)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            -- 🧹 ล้างประวัติไข่ที่หายจากแมพ / ถูกเก็บไปแล้ว (กันหน่วยความจำรั่ว)
+            for egg in pairs(notifiedEggs) do
+                if not egg or not egg.Parent or not isWildEgg(egg) then
+                    notifiedEggs[egg] = nil
+                end
+            end
+            -- ⏱️ ครบ 1 นาทีหลังพบไข่ → ปิดเสียง + ปิดป๊อปอัป อัตโนมัติ
+            if isNotifying and os.clock() - alertAt > 60 then
+                stopAlertNow()
+                logLine("[🔔] ปิดแจ้งเตือนอัตโนมัติ (ครบ 1 นาที)")
+            end
+        end
+    end
+end)
+
+-- ------------------------------------------------------------
+-- 🎯 ไปเก็บไข่ "ชุดเดียวกับลูปฟาร์ม" (ใช้ร่วมกัน : ปุ่ม 🎯 วาร์ป และ ปุ่ม 👑 Giant)
+--    · สแกน "สด" ทุกครั้งที่กด (instance เก่าใช้ไม่ได้ → แก้บั๊กวาร์ปไปแล้วไม่เจอ)
+--    · ฟาร์มอยู่ → ใส่หัวคิวให้ "ลูปเดิม" เป็นคนไปเก็บ (ไม่ชนลูป ไม่ตีรวน)
+--    · ไม่ได้ฟาร์ม → เรียก grabAndReturn ตรง ๆ (วาร์ป→เก็บ→ดรอปลาวา→กลับแปลง→มือเปล่า)
+--    📜 ทุกขั้นตอนลงไฟล์ log พร้อมเวลาอัตโนมัติ
+-- ------------------------------------------------------------
+local function goCollectEgg(name, preset)
+    if not name then
+        setStatus("ยังไม่ได้เลือกไข่", C.Red)
+        logLine("[X] ยังไม่ได้เลือกไข่ -> กดแตะเลือกไข่ในตารางก่อน")
+        return false
+    end
+
+    -- 🔄 หา instance สด : ใช้ที่กดมา (ถ้ายังอยู่) ไม่งั้นสแกนใหม่ด้วยชื่อเดิม
+    local egg = preset
+    if not (egg and egg.Parent and egg:IsDescendantOf(workspace) and isWildEgg(egg)) then
+        local arr = scanAll()[name]
+        egg = arr and arr[1]
+    end
+    if not egg then
+        setStatus("ยังไม่มี " .. name .. " ในแมพ", C.Red)
+        logLine("[X] ไม่พบ " .. name .. " ในแมพ (สแกนสดไม่เจอ) -> ยังไปเก็บไม่ได้")
+        return false
+    end
+
+    if isFarming then
+        -- ลูปกำลังวิ่ง → ใส่ "หัวคิว" ให้ลูปเดิมเป็นคนไป (ไม่แตะลอจิกฟาร์ม)
+        local at = table.find(selectedEggs, name)
+        if at then table.remove(selectedEggs, at) end
+        table.insert(selectedEggs, 1, name)
+        eggMode[name] = eggMode[name] or "once"
+        refreshSelection()
+        logLine("[>] " .. name .. " -> หัวคิว (ลูปฟาร์มไปเก็บรอบถัดไป)")
+        return true
+    end
+
+    if isGrabbing then
+        logLine("[!] กำลังเก็บไข่อีกใบอยู่ -> รอรอบถัดไป")
+        return false
+    end
+
+    -- 🏠 เหมือนตอนกดเริ่มฟาร์ม : หาแปลงก่อน ไม่งั้นขากลับไม่มีเป้า
+    if not homeCFrame then
+        local okCF, cf = pcall(getPlotCFrame)
+        if okCF and cf then homeCFrame = cf end
+    end
+    -- 🧺 ยังถือไข่ค้าง? → กลับแปลงวางก่อน (ระบบเดียวกับลูป)
+    if heldEggName() then placeHeldEgg("ก่อนไปเก็บ " .. name) end
+    if heldEggName() then
+        logLine("[X] ยังถือไข่ค้างอยู่ -> ยังไปเก็บ " .. name .. " ไม่ได้")
+        return false
+    end
+
+    setStatus("ไปเก็บ " .. name, C.Amber)
+    logLine("[>] กดไปเก็บ " .. name .. " -> ระบบวาร์ป/เก็บ/ดรอปลาวา/กลับแปลง ชุดเดียวกับลูป")
+    local ok, err = pcall(grabAndReturn, egg)
+    isGrabbing = false
+    if not ok then
+        setStatus("เก็บ " .. name .. " ไม่สำเร็จ", C.Red)
+        logLine("[ERR] เก็บ " .. name .. " : " .. tostring(err))
+        return false
+    end
+    logLine("[OK] จบการเก็บ " .. name)
+    return true
+end
+
+-- 👑 เก็บ Giant Egg : ชื่อ "Giant Egg" ก่อน → ไม่เจอ = ใช้ไข่ "ใหญ่ที่สุดในแมพ"
+giantBtn.Activated:Connect(function()
+    task.spawn(function()
+        pcall(function()
+            currentTargetEgg = "Giant Egg"    -- 🔒 ล็อกเป้าหมายทันที (ESP โชว์ทันทีด้วย)
+            refreshSelection()
+
+            local arr = scanAll()["Giant Egg"]
+            local giant = arr and arr[1]
+            if giant then
+                goCollectEgg("Giant Egg", giant)
+                return
+            end
+
+            -- 🔎 ไม่เจอชื่อ Giant Egg → ใช้ไข่ "ใหญ่ที่สุดในแมพ" จริง ๆ (วัด bounding box)
+            local big, bigName, vol = biggestEggInMap()
+            if big then
+                logLine("[👑] ไม่พบชื่อ Giant Egg -> ใช้ไข่ใหญ่ที่สุดในแมพ : " .. bigName
+                    .. " (" .. math.floor(vol) .. " studs^3)")
+                currentTargetEgg = bigName
+                refreshSelection()
+                goCollectEgg(bigName, big)
+            else
+                setStatus("ยังไม่มีไข่ในแมพ", C.Red)
+                logLine("[X] ไม่พบ Giant Egg และไม่พบไข่ใบที่ใหญ่ที่สุดในแมพ -> รอเกิดแล้วกดใหม่")
+            end
+        end)
+    end)
+end)
+
+-- 🎯 วาร์ปไปฟาร์ม "ไข่ที่เลือก" (แตะเลือกไว้) — แยกต่างหากจากปุ่มฟาร์มออโต้
+warpBtn.Activated:Connect(function()
+    task.spawn(function()
+        pcall(function()
+            if not currentTargetEgg then
+                setStatus("ยังไม่ได้เลือกไข่", C.Red)
+                logLine("[X] กดวาร์ปแต่ยังไม่ได้แตะเลือกไข่ -> แตะไข่ในตารางก่อน")
+                return
+            end
+            logLine("[🎯] กดวาร์ปไปฟาร์ม : " .. currentTargetEgg)
+            goCollectEgg(currentTargetEgg)
+        end)
+    end)
 end)
 
 -- 🔁 รีจอย — ระบบเดิมจาก VIP.txt (คัดมาใช้ตามคำสั่งผู้ใช้)
@@ -2510,14 +3343,19 @@ rejoinBtn.Activated:Connect(function()
     end
 end)
 
--- ย่อ / ปิด
-local fullH = H            -- minimized ประกาศไว้ตอนสร้างหน้าต่างแล้ว
+-- ย่อ / ปิด (proud) : ย่อ = เหลือแถบชื่อ 32px / กาง = ความสูง "ตามเมนูที่เปิดอยู่จริง"
 minBtn.Activated:Connect(function()
     minimized = not minimized
     minBtn.Text = minimized and "+" or "—"
-    TweenService:Create(win, TweenInfo.new(0.18), {
-        Size = UDim2.new(0, W, 0, minimized and 32 or fullH),
-    }):Play()
+    -- ⚡ ลด FPS : ย่อหน้าต่าง = ซ่อนเนื้อหาทั้งหมด (32 ไทล์ + รูปไข่) ไม่ต้องเรนเดอร์/จัดวางเลย
+    body.Visible = not minimized
+    if minimized then
+        TweenService:Create(win, TweenInfo.new(0.18), {
+            Size = UDim2.new(0, W, 0, 32),
+        }):Play()
+    else
+        reflow()   -- กางกลับ = ย่อ/ขยายตามส่วนที่เปิดอยู่ (พับไข่/ล็อกไว้ = หน้าต่างสั้นลง)
+    end
 end)
 closeBtn.Activated:Connect(function()
     isFarming = false
@@ -2610,5 +3448,8 @@ end)
 
 logLine(CFG.SHIELD and "[OK] ระบบกันเปิดแล้ว - บล็อก Ban/Kick/Analytics/FPS"
     or "[!] ระบบกันปิดอยู่ (CFG.SHIELD = false) - ไว้เช็กสาเหตุแอปหลุด")
-logLine("[OK] EGG LITE พร้อม - คลิกเลือกไข่แล้วกดเริ่มฟาร์ม")
-print("[EGG LITE] loaded - 32 eggs / teleport mode / no TeleportToPlot")
+logLine("[OK] เพิ่มแล้ว : 🔄 ฟาร์มออโต้ · 🎯 วาร์ปตามที่เลือก · 👀 View แบบแตะ · 🔔 แจ้งเตือน 1 นาที")
+logLine("[OK] 📜 log ทุกเหตุการณ์ลง EGG_LITE_LOG.txt (หน้าจอโชว์เฉพาะบั๊ก) · หน้าต่าง reflow ตามเมนู")
+logLine("[OK] 🎮 ภาพกาก 3 ระดับพร้อม (ปิด→1 เบา→2 กลาง→3 กากสุด) · คุ้มกัน UI/ESP/ไข่")
+logLine("[OK] EGG LITE พร้อม - แตะ = ใบเดียว / กดค้าง 3 วิ = คิวหลายใบ")
+print("[EGG LITE r18] loaded - notify 60s + ESP 2-part + auto/warp buttons + gfx 3-level + file log")
