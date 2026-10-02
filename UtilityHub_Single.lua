@@ -30,6 +30,8 @@
 --      ⚠️ r23 : ถอดระบบเซฟ apex_settings_*.json ออกทั้งหมด (ใช้ไม่ได้ → ลบตามคำสั่ง)
 --      ⚠️ r24 : ถอดเมนู Rollback (SaveSatchelOrder) ออกทั้งหมดตามคำสั่ง
 --    · 🌋 r25 : ดรอปลาวาเปิดเป็นค่าเริ่มต้นตอนโหลด (ปุ่ม 🌋 = สีเขียวตั้งแต่เปิดสคริปต์)
+--    · ⏱️ r26 : Anti-AFK แกะมาจาก 2.lua ตามคำสั่ง (คัดลอกดั้งเดิม ห้ามเขียนใหม่)
+--      — Idled → VirtualUser กดแทน · กันเด้งออกห้องตอนค้าง (timeout 20 นาที)
 --
 -- ⛔ ไม่ยิง remote "TeleportToPlot" เด็ดขาด
 --    (ตามคำสั่ง — กันอาการ "Can't Teleport While Carrying Eggs")
@@ -162,6 +164,21 @@ if CFG.SHIELD then pcall(function()
         end
     end
 end) end
+
+-- -------------------------------------------------------------
+-- ⏱️ Anti-AFK Engine — แกะมาจาก 2.lua ตามคำสั่ง (ห้ามเขียนใหม่ → คัดลอกดั้งเดิมเป๊ะ)
+--    · กันเด้งออกห้องเพราะค้าง (timeout 20 นาที) — Idled → VirtualUser กดปุ่มแทน
+-- -------------------------------------------------------------
+-- 2. Anti-AFK Engine
+-- -------------------------------------------------------------
+local virtualUser = game:GetService("VirtualUser")
+local antiAfkEnabled = true
+player.Idled:Connect(function()
+    if antiAfkEnabled then
+        virtualUser:CaptureController()
+        virtualUser:ClickButton2(Vector2.new(0, 0))
+    end
+end)
 
 -- ---------- สี : ธีม "มิดไนท์วิโอเล็ต" (ดำอมม่วง + ไวโอเล็ต-ฟ้า) ----------
 local C = {
@@ -376,7 +393,7 @@ mk("UIGradient", {
 }, bar)
 mk("TextLabel", {
     Size = UDim2.new(1, -80, 1, 0), Position = UDim2.new(0, 11, 0, 0),
-    BackgroundTransparency = 1, Text = "🥚 EGG LITE · r25", TextColor3 = C.Text,
+    BackgroundTransparency = 1, Text = "🥚 EGG LITE · r26", TextColor3 = C.Text,
     Font = Enum.Font.GothamBold, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left,
 }, bar)
 
@@ -3533,6 +3550,7 @@ end)
 
 logLine(CFG.SHIELD and "[OK] ระบบกันเปิดแล้ว - บล็อก Ban/Kick/Analytics/FPS"
     or "[!] ระบบกันปิดอยู่ (CFG.SHIELD = false) - ไว้เช็กสาเหตุแอปหลุด")
+logLine("[OK] ⏱️ Anti-AFK พร้อม - แกะจาก 2.lua (Idled -> VirtualUser · กันเด้งตอนค้าง 20 นาที)")
 logLine("[OK] เพิ่มแล้ว : 🔄 ฟาร์มออโต้ · 🎯 วาร์ปตามที่เลือก · 👀 View แบบแตะ · 🔔 แจ้งเตือน 1 นาที")
 logLine("[OK] 📜 log ทุกเหตุการณ์ลง EGG_LITE_LOG.txt (หน้าจอโชว์เฉพาะบั๊ก) · หน้าต่าง reflow ตามเมนู")
 logLine("[OK] 🎮 ภาพกาก 3 ระดับพร้อม (ปิด→1 เบา→2 กลาง→3 กากสุด) · คุ้มกัน UI/ESP/ไข่")
@@ -3540,4 +3558,4 @@ logLine("[OK] 🔁 เมนูรีจอยพร้อม - คนเดี�
 logLine("[🌋] ดรอปลาวาเปิดตั้งแต่โหลด (ค่าเริ่มต้น r25) - เก็บแล้วไต่ 1->4 ก่อนกลับแปลง")
 logLine("[OK] 🎨 UI ใหม่ r20 - ธีมมิดไนท์ไวโอเล็ต (การ์ดขอบม่วง + หัวข้อ pill + แถบไล่เฉดบนสุด)")
 logLine("[OK] EGG LITE พร้อม - แตะ = ใบเดียว / กดค้าง 3 วิ = คิวหลายใบ")
-print("[EGG LITE r25] loaded - lava dip ON by default + rejoin (Roblox.txt style: kick+reteleport when alone) + midnight violet UI + notify 60s + ESP 2-part + auto/warp buttons + gfx 3-level + file log (save & rollback systems removed)")
+print("[EGG LITE r26] loaded - anti-AFK from 2.lua (Idled->VirtualUser anti-kick) + lava dip ON by default + rejoin (Roblox.txt style) + midnight violet UI + notify 60s + ESP 2-part + auto/warp buttons + gfx 3-level + file log")
