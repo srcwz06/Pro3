@@ -7,7 +7,7 @@
 --    → ตรวจว่าเข้ามือจริง → บินกลับแปลง → วางไข่ → วนลูป
 --
 -- ❌ ยังไม่ทำใน v1
---    · ระบบเซฟไฟล์ (save/load ค่าตั้ง)
+--    · ระบบเซฟไฟล์ (save/load ค่าตั้ง) — r23 : เคยเพิ่มไว้แล้วใช้ไม่ได้ → ลบออกตามคำสั่ง
 --
 -- ✅ เพิ่มรอบนี้ (ย้ายจากระบบ 2 — ไม่แตะลอจิกฟาร์มเดิม)
 --    · 🔔 แจ้งเตือนเสียง + ป๊อปอัป (Volcanic / Cherub / Solaris)
@@ -22,6 +22,14 @@
 --    · 📱 หน้าต่างย่อ/ขยายตามเมนูที่เปิดอยู่จริง (reflow) + ตารางปุ่มจัดกลุ่มใหม่
 --    · 🎮 ระบบภาพกาก (Boost FPS) ย้ายจาก 2.lua → เป็นปุ่มวน 3 ระดับ
 --      (ปิด → 1 เบา → 2 กลาง → 3 กากสุด) · คุ้มกัน UI/ESP/ไข่ไม่ให้โดนลดคุณภาพ
+--    · 🪄 เมนู Rollback — r24 : ถอดออกทั้งหมดตามคำสั่ง (เคยย้ายมาจากไฟล์ "rollback ride a pet")
+--    · 🎨 UI ใหม่ทั้งหมด (r20) : ธีม "มิดไนท์วิโอเล็ต" — การ์ดขอบม่วง หัวข้อแบบ pill
+--      แถบไล่เฉดม่วง→ฟ้าบนสุด · ปุ่มเปิด/ปิดโทนใหม่ · คงโครงหน้าต่าง/ปุ่ม/ระบบเดิมไว้ทุกอย่าง
+--    · 🔁 เมนูรีจอย (r21 เพิ่มเมนู · r22 เปลี่ยนลอจิก) — ลอจิกแบบ Roblox.txt :
+--      ≤1 คน = Kick("Rejoining...") → wait 0.5 → Teleport ห้องใหม่ / มีคน = เข้าห้องเดิม (JobId เดิม)
+--      ⚠️ r23 : ถอดระบบเซฟ apex_settings_*.json ออกทั้งหมด (ใช้ไม่ได้ → ลบตามคำสั่ง)
+--      ⚠️ r24 : ถอดเมนู Rollback (SaveSatchelOrder) ออกทั้งหมดตามคำสั่ง
+--    · 🌋 r25 : ดรอปลาวาเปิดเป็นค่าเริ่มต้นตอนโหลด (ปุ่ม 🌋 = สีเขียวตั้งแต่เปิดสคริปต์)
 --
 -- ⛔ ไม่ยิง remote "TeleportToPlot" เด็ดขาด
 --    (ตามคำสั่ง — กันอาการ "Can't Teleport While Carrying Eggs")
@@ -155,20 +163,22 @@ if CFG.SHIELD then pcall(function()
     end
 end) end
 
--- ---------- สี ----------
+-- ---------- สี : ธีม "มิดไนท์วิโอเล็ต" (ดำอมม่วง + ไวโอเล็ต-ฟ้า) ----------
 local C = {
-    Bg     = Color3.fromRGB(30, 30, 32),   -- เทาดำ (ไม่อมน้ำเงิน) — ใช้คู่ BackgroundTransparency
-    BgDark = Color3.fromRGB(14, 14, 16),   -- แถบชื่อ/ตาราง — ดำกว่าพื้นหลัก
-    Card   = Color3.fromRGB(45, 54, 72),
-    Stroke = Color3.fromRGB(61, 71, 89),
-    Log    = Color3.fromRGB(13, 17, 23),
-    Text   = Color3.fromRGB(230, 237, 243),
-    Sub    = Color3.fromRGB(195, 204, 221),
-    Muted  = Color3.fromRGB(120, 133, 155),
-    Accent = Color3.fromRGB(59, 130, 246),
-    Green  = Color3.fromRGB(16, 185, 129),
-    Red    = Color3.fromRGB(239, 68, 68),
-    Amber  = Color3.fromRGB(245, 158, 11),
+    Bg      = Color3.fromRGB(18, 18, 27),   -- พื้นหน้าต่าง (ดำอมม่วง)
+    BgDark  = Color3.fromRGB(11, 11, 17),   -- แถบชื่อ/หัวข้อ/กริด — ดำกว่าพื้นหลัก
+    Card    = Color3.fromRGB(36, 34, 56),   -- การ์ด/ปุ่มรอง (เทาม่วง)
+    Stroke  = Color3.fromRGB(86, 76, 134),  -- ขอบม่วงอ่อน
+    Log     = Color3.fromRGB(7, 7, 11),
+    Text    = Color3.fromRGB(240, 238, 255),
+    Sub     = Color3.fromRGB(204, 199, 236),
+    Muted   = Color3.fromRGB(134, 127, 172),
+    Accent  = Color3.fromRGB(139, 92, 246),   -- ไวโอเล็ตหลัก
+    Accent2 = Color3.fromRGB(96, 165, 250),   -- ฟ้าคู่ไว้ไล่เฉด
+    Green   = Color3.fromRGB(21, 196, 152),   -- เขียวมิ้นต์ (เปิด/กำลังรัน)
+    Red     = Color3.fromRGB(244, 69, 107),   -- ชมพูแดง (ปิด/หยุด/อันตราย)
+    Amber   = Color3.fromRGB(251, 191, 36),   -- อำพัน (แจ้งเตือน/รอ)
+    Off     = Color3.fromRGB(55, 50, 82),     -- พื้นปุ่มสถานะ "ปิด" (เทาม่วงเข้ม)
 }
 local RARITY_COLOR = {
     ["Secret"]    = Color3.fromRGB(234, 179, 8),
@@ -238,7 +248,7 @@ local selectedEggs = {}      -- ลำดับในตาราง = ลำด
 local isFarming   = false
 local isGrabbing  = false
 local homeCFrame  = nil
-local dipEnabled  = false    -- 🌋 สวิตช์ดรอปลาวา (กดปุ่มบนหน้าต่าง)
+local dipEnabled  = true     -- 🌋 สวิตช์ดรอปลาวา (ค่าเริ่มต้น "เปิด" ตั้งแต่โหลด — r25 ตามคำสั่ง)
 local dipRunning  = false    -- กันรันซ้อนระหว่างรอบดรอป
 local currentTargetEgg = nil -- 🎯 เป้าหมายจาก "การแตะ" (แบบไฟล์ 2) — ไม่กระทบคิวฟาร์ม
 local espEnabled       = true  -- 👁️ สวิตช์ ESP ปกติ (ปุ่ม 👁️) — Giant โชว์ตลอดไม่ว่าเปิด/ปิด
@@ -253,16 +263,22 @@ local sg = mk("ScreenGui", {
     ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 }, parentGui)
 
-local W, H = 340, 694   -- ความสูงเริ่มต้น (ทุกส่วนกางอยู่) — ใช้ reflow() ย่อ/ขยายตามเมนูที่เปิดจริง
+local W, H = 340, 778   -- ความสูงเริ่มต้น (ทุกส่วนกางอยู่ รวมเมนู 🔁 รีจอย) — ใช้ reflow() ย่อ/ขยายตามเมนูที่เปิดจริง
 local minimized = false          -- ประกาศไว้ตรงนี้ (ระบบ fit จอต้องใช้)
 local win = mk("Frame", {
     Size = UDim2.new(0, W, 0, H), Position = UDim2.new(0, 44, 0, 130),
-    -- 🪟 พื้นหลัง "เทาดำ มองทะลุ" เห็นฉากเกมด้านหลัง (ยิ่งน้อยยิ่งใส)
-    BackgroundColor3 = C.Bg, BackgroundTransparency = 0.30,
+    -- 🪟 พื้นดำอมม่วงกึ่งทึบ (เห็นฉากเกมด้านหลังนิดหน่อย — ยิ่งน้อยยิ่งใส)
+    BackgroundColor3 = C.Bg, BackgroundTransparency = 0.16,
     BorderSizePixel = 0, ClipsDescendants = true,
 }, sg)
-mk("UICorner", { CornerRadius = UDim.new(0, 12) }, win)
-mk("UIStroke", { Color = C.Stroke, Thickness = 1.3, Transparency = 0.25 }, win)
+mk("UICorner", { CornerRadius = UDim.new(0, 14) }, win)
+mk("UIStroke", { Color = C.Stroke, Thickness = 1.4, Transparency = 0.35 }, win)
+-- 🌈 แถบไล่เฉดม่วง→ฟ้า 3px บนสุด = ลายเซ็นแบรนด์ (โดนมุมมนตัดให้เหลือโค้งพอดี)
+mk("UIGradient", { Color = ColorSequence.new(C.Accent, C.Accent2) },
+    mk("Frame", {
+        Size = UDim2.new(1, 0, 0, 3), Position = UDim2.new(0, 0, 0, 0),
+        BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 3,
+    }, win))
 
 -- ============================================================
 -- 🔔 แจ้งเตือนเสียง + ป๊อปอัป (ย้ายมาจากระบบ 2 ทั้งชุด)
@@ -275,23 +291,23 @@ local alertSound = mk("Sound", {
 
 local popupFrame = mk("Frame", {
     Size = UDim2.new(0, 280, 0, 140), Position = UDim2.new(0.5, -140, 0.5, -70),
-    BackgroundColor3 = Color3.fromRGB(40, 45, 60), BorderSizePixel = 0,
+    BackgroundColor3 = C.Card, BorderSizePixel = 0,
     Visible = false, ZIndex = 50,
 }, sg)
-mk("UICorner", { CornerRadius = UDim.new(0, 10) }, popupFrame)
+mk("UICorner", { CornerRadius = UDim.new(0, 12) }, popupFrame)
 local popupStroke = mk("UIStroke", { Color = C.Red, Thickness = 2 }, popupFrame)
 local popupScale = mk("UIScale", { Scale = 1 }, popupFrame)
 
 local popupTitle = mk("TextLabel", {
     Size = UDim2.new(1, 0, 0, 35), BackgroundTransparency = 1,
-    Text = "⚠️ ระบบแจ้งเตือน ⚠️", TextColor3 = Color3.fromRGB(255, 100, 100),
+    Text = "⚠️ ระบบแจ้งเตือน ⚠️", TextColor3 = C.Red,
     Font = Enum.Font.GothamBold, TextSize = 16, ZIndex = 51,
 }, popupFrame)
 
 local popupMsg = mk("TextLabel", {
     Size = UDim2.new(1, -20, 0, 50), Position = UDim2.new(0, 10, 0, 35),
     BackgroundTransparency = 1, Text = "พบไข่เป้าหมายแล้ว!",
-    TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.Gotham, TextSize = 14,
+    TextColor3 = C.Text, Font = Enum.Font.Gotham, TextSize = 14,
     TextWrapped = true, ZIndex = 51,
 }, popupFrame)
 
@@ -301,7 +317,7 @@ local popupBtn = mk("TextButton", {
     TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold,
     TextSize = 14, ZIndex = 51, AutoButtonColor = true,
 }, popupFrame)
-mk("UICorner", { CornerRadius = UDim.new(0, 6) }, popupBtn)
+mk("UICorner", { CornerRadius = UDim.new(0, 10) }, popupBtn)
 
 -- ============================================================
 -- 📱 รองรับมือถือ : ย่อ/ขยายหน้าต่างให้พอดีจอ + กันลากออกนอกจอ
@@ -346,15 +362,21 @@ pcall(function()
     workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(fitToScreen)
 end)
 
--- แถบชื่อ (ใช้ลากหน้าต่าง)
+-- แถบชื่อ (ใช้ลากหน้าต่าง) — ไล่เฉดจากดำสนิทไปม่วงเรืองรองฝั่งปุ่ม
 local bar = mk("Frame", {
     Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = C.BgDark,
-    BackgroundTransparency = 0.18,   -- แถบชื่อทึบกว่าตัวหน้าต่างนิดหน่อย กันข้อความไม่ชัด
+    BackgroundTransparency = 0.05,   -- แถบชื่อทึบสุดของหน้าต่าง กันข้อความไม่ชัด
     BorderSizePixel = 0, Active = true,
 }, win)
+mk("UIGradient", {
+    Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(126, 106, 214)),
+    }),
+}, bar)
 mk("TextLabel", {
     Size = UDim2.new(1, -80, 1, 0), Position = UDim2.new(0, 11, 0, 0),
-    BackgroundTransparency = 1, Text = "🥚 EGG LITE · r18", TextColor3 = C.Text,
+    BackgroundTransparency = 1, Text = "🥚 EGG LITE · r25", TextColor3 = C.Text,
     Font = Enum.Font.GothamBold, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left,
 }, bar)
 
@@ -363,14 +385,14 @@ local minBtn = mk("TextButton", {
     BackgroundColor3 = C.Card, BorderSizePixel = 0, AutoButtonColor = true,
     Text = "—", TextColor3 = C.Sub, Font = Enum.Font.GothamBold, TextSize = 13,
 }, bar)
-mk("UICorner", { CornerRadius = UDim.new(0, 6) }, minBtn)
+mk("UICorner", { CornerRadius = UDim.new(0, 7) }, minBtn)
 
 local closeBtn = mk("TextButton", {
     Size = UDim2.new(0, 24, 0, 24), Position = UDim2.new(1, -28, 0.5, -12),
     BackgroundColor3 = C.Red, BorderSizePixel = 0, AutoButtonColor = true,
-    Text = "X", TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 11,
+    Text = "✕", TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 11,
 }, bar)
-mk("UICorner", { CornerRadius = UDim.new(0, 6) }, closeBtn)
+mk("UICorner", { CornerRadius = UDim.new(0, 7) }, closeBtn)
 
 -- เนื้อหา
 local body = mk("ScrollingFrame", {
@@ -389,10 +411,11 @@ mk("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10),
 
 -- 1) แถบสถานะ : LED + ข้อความ + badge
 local statusBox = mk("Frame", {
-    Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = C.BgDark,
-    BackgroundTransparency = 0.35, BorderSizePixel = 0, LayoutOrder = 1,
+    Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = C.Card,
+    BackgroundTransparency = 0.30, BorderSizePixel = 0, LayoutOrder = 1,
 }, body)
-mk("UICorner", { CornerRadius = UDim.new(0, 9) }, statusBox)
+mk("UICorner", { CornerRadius = UDim.new(0, 10) }, statusBox)
+mk("UIStroke", { Color = C.Stroke, Thickness = 1, Transparency = 0.55 }, statusBox)
 
 local statusDot = mk("Frame", {
     Size = UDim2.new(0, 8, 0, 8), Position = UDim2.new(0, 11, 0.5, -4),
@@ -403,14 +426,14 @@ mk("UICorner", { CornerRadius = UDim.new(1, 0) }, statusDot)
 local statusLbl = mk("TextLabel", {
     Size = UDim2.new(1, -88, 1, 0), Position = UDim2.new(0, 26, 0, 0),
     BackgroundTransparency = 1, Text = "หยุดอยู่", TextColor3 = C.Sub,
-    Font = Enum.Font.Gotham, TextSize = 11.5,
+    Font = Enum.Font.GothamBold, TextSize = 11,
     TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
 }, statusBox)
 
 local statusBadge = mk("TextLabel", {
     Size = UDim2.new(0, 56, 0, 18), Position = UDim2.new(1, -62, 0.5, -9),
-    BackgroundColor3 = Color3.fromRGB(30, 58, 95), BorderSizePixel = 0,
-    Text = "0 ใบ", TextColor3 = Color3.fromRGB(125, 211, 252),
+    BackgroundColor3 = Color3.fromRGB(43, 38, 84), BorderSizePixel = 0,
+    Text = "0 ใบ", TextColor3 = Color3.fromRGB(167, 139, 250),
     Font = Enum.Font.GothamBold, TextSize = 10,
 }, statusBox)
 mk("UICorner", { CornerRadius = UDim.new(1, 0) }, statusBadge)
@@ -431,7 +454,7 @@ local startBtn = mk("TextButton", {
 mk("UICorner", { CornerRadius = UDim.new(0, 10) }, startBtn)
 
 local autoBtn = mk("TextButton", {
-    Size = UDim2.new(0.38, -5, 1, 0), BackgroundColor3 = Color3.fromRGB(107, 114, 128),
+    Size = UDim2.new(0.38, -5, 1, 0), BackgroundColor3 = C.Off,
     BorderSizePixel = 0, AutoButtonColor = true, Text = "🔄 ออโต้: ปิด",
     TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 11,
     TextTruncate = Enum.TextTruncate.AtEnd,
@@ -447,7 +470,7 @@ local actions2 = mk("Frame", {
 mk("UIListLayout", { Padding = UDim.new(0, 7), FillDirection = Enum.FillDirection.Horizontal }, actions2)
 
 local warpBtn = mk("TextButton", {
-    Size = UDim2.new(1, -125, 1, 0), BackgroundColor3 = Color3.fromRGB(37, 99, 235),
+    Size = UDim2.new(1, -125, 1, 0), BackgroundColor3 = Color3.fromRGB(99, 102, 241),
     BorderSizePixel = 0, AutoButtonColor = true, Text = "🎯 วาร์ปไปฟาร์มไข่ที่เลือก",
     TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 11,
     TextTruncate = Enum.TextTruncate.AtEnd,
@@ -455,7 +478,7 @@ local warpBtn = mk("TextButton", {
 mk("UICorner", { CornerRadius = UDim.new(0, 10) }, warpBtn)
 
 local giantBtn = mk("TextButton", {
-    Size = UDim2.new(0.38, -5, 1, 0), BackgroundColor3 = Color3.fromRGB(217, 119, 6),
+    Size = UDim2.new(0.38, -5, 1, 0), BackgroundColor3 = Color3.fromRGB(234, 88, 12),
     BorderSizePixel = 0, AutoButtonColor = true, Text = "👑 เก็บ Giant",
     TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 11,
     TextTruncate = Enum.TextTruncate.AtEnd,
@@ -474,7 +497,7 @@ mk("UIListLayout", { Padding = UDim.new(0, 7), FillDirection = Enum.FillDirectio
 local espBtn = mk("TextButton", {
     Size = UDim2.new(0.47, -4, 1, 0), BackgroundColor3 = C.Accent,
     BorderSizePixel = 0, AutoButtonColor = true, Text = "👁️ ESP: เปิด",
-    TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 10,
+    TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 11,
     TextTruncate = Enum.TextTruncate.AtEnd,
 }, actions3)
 mk("UICorner", { CornerRadius = UDim.new(0, 10) }, espBtn)
@@ -482,7 +505,7 @@ mk("UICorner", { CornerRadius = UDim.new(0, 10) }, espBtn)
 local notifyBtn = mk("TextButton", {
     Size = UDim2.new(0.47, -4, 1, 0), BackgroundColor3 = C.Red,
     BorderSizePixel = 0, AutoButtonColor = true, Text = "🔔 แจ้งเตือน: ปิด",
-    TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 10,
+    TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 11,
     TextTruncate = Enum.TextTruncate.AtEnd,
 }, actions3)
 mk("UICorner", { CornerRadius = UDim.new(0, 10) }, notifyBtn)
@@ -496,7 +519,7 @@ local actions4 = mk("Frame", {
 mk("UIListLayout", { Padding = UDim.new(0, 7), FillDirection = Enum.FillDirection.Horizontal }, actions4)
 
 local gfxBtn = mk("TextButton", {
-    Size = UDim2.new(1, -101, 1, 0), BackgroundColor3 = Color3.fromRGB(107, 114, 128),
+    Size = UDim2.new(1, -101, 1, 0), BackgroundColor3 = C.Off,
     BorderSizePixel = 0, AutoButtonColor = true, Text = "🎮 ภาพกาก: ปิด",
     TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 11,
     TextTruncate = Enum.TextTruncate.AtEnd,
@@ -504,32 +527,80 @@ local gfxBtn = mk("TextButton", {
 mk("UICorner", { CornerRadius = UDim.new(0, 10) }, gfxBtn)
 
 local dipBtn = mk("TextButton", {
-    Size = UDim2.new(0, 40, 1, 0), BackgroundColor3 = Color3.fromRGB(107, 114, 128),
+    Size = UDim2.new(0, 40, 1, 0), BackgroundColor3 = dipEnabled and C.Green or C.Off,
     BorderSizePixel = 0, AutoButtonColor = true, Text = "🌋",
     TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 17,
 }, actions4)
 mk("UICorner", { CornerRadius = UDim.new(0, 10) }, dipBtn)
 
 local previewBtn = mk("TextButton", {
-    Size = UDim2.new(0, 40, 1, 0), BackgroundColor3 = Color3.fromRGB(168, 85, 247),
+    Size = UDim2.new(0, 40, 1, 0), BackgroundColor3 = Color3.fromRGB(147, 51, 237),
     BorderSizePixel = 0, AutoButtonColor = true, Text = "👀",
     TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 17,
 }, actions4)
 mk("UICorner", { CornerRadius = UDim.new(0, 10) }, previewBtn)
 
+-- ────────────────────────────────────────────────────────────
+-- 2.8) เมนู "🔁 รีจอย" — หัวข้อพับได้ใต้แถวปุ่ม (r24 : เมนู Rollback ถูกถอดออกแล้ว)
+--      · 🔁 รีจอย ย้ายมาจาก footer (แถวเดิมถูกถอดออก) — ลอจิกแบบ Roblox.txt
+--      · ⚠️ r23 : ระบบเซฟ apex_settings_*.json ถูกลบออกทั้งหมด (ใช้ไม่ได้ → ลบตามคำสั่ง)
+--      · พับได้เหมือนหัวข้ออื่น — อยู่ใน do...end กันชนลิมิต 200 local
+-- ────────────────────────────────────────────────────────────
+local SVUI
+do
+    local svHead = mk("TextButton", {
+        Size = UDim2.new(1, 0, 0, 22), BackgroundColor3 = C.BgDark,
+        BackgroundTransparency = 0.45, LayoutOrder = 6,
+        AutoButtonColor = false, Text = "",
+    }, body)
+    mk("UICorner", { CornerRadius = UDim.new(0, 8) }, svHead)
+    local svChev = mk("TextLabel", {
+        Size = UDim2.new(0, 14, 0, 22), BackgroundTransparency = 1, Text = "▼",
+        TextColor3 = C.Accent, Font = Enum.Font.GothamBold, TextSize = 9,
+    }, svHead)
+    local svTitle = mk("TextLabel", {
+        Size = UDim2.new(1, -24, 0, 22), Position = UDim2.new(0, 16, 0, 0),
+        BackgroundTransparency = 1, Text = "🔁 รีจอย",
+        TextColor3 = C.Text, Font = Enum.Font.GothamBold, TextSize = 11.5,
+        TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
+    }, svHead)
+
+    local svPanel = mk("Frame", {
+        Size = UDim2.new(1, 0, 0, 46), BackgroundColor3 = C.Card,
+        BackgroundTransparency = 0.30, BorderSizePixel = 0, LayoutOrder = 7,
+    }, body)
+    mk("UICorner", { CornerRadius = UDim.new(0, 10) }, svPanel)
+    mk("UIStroke", { Color = C.Stroke, Thickness = 1, Transparency = 0.6 }, svPanel)
+
+    local rejoinBtn = mk("TextButton", {
+        Size = UDim2.new(1, -16, 0, 34), Position = UDim2.new(0, 8, 0, 6),
+        BackgroundColor3 = C.Off, BorderSizePixel = 0,
+        AutoButtonColor = true, Text = "🔁 รีจอย (คนเดียว = ห้องใหม่ / มีคน = ห้องเดิม)",
+        TextColor3 = C.Red, Font = Enum.Font.GothamBold, TextSize = 11,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+    }, svPanel)
+    mk("UICorner", { CornerRadius = UDim.new(0, 10) }, rejoinBtn)
+    mk("UIStroke", { Color = C.Red, Thickness = 1.2, Transparency = 0.45 }, rejoinBtn)
+
+    SVUI = { head = svHead, chev = svChev, title = svTitle, panel = svPanel,
+             rejoin = rejoinBtn }
+end
+
 -- 3) หัวข้อ "ไข่" (พับได้) — ยุบ 3 label เดิมไว้ในนี้
 local eggHead = mk("TextButton", {
-    Size = UDim2.new(1, 0, 0, 38), BackgroundTransparency = 1, LayoutOrder = 6,
+    Size = UDim2.new(1, 0, 0, 38), BackgroundColor3 = C.BgDark,
+    BackgroundTransparency = 0.45, LayoutOrder = 8,
     AutoButtonColor = false, Text = "",
 }, body)
+mk("UICorner", { CornerRadius = UDim.new(0, 8) }, eggHead)
 local eggChev = mk("TextLabel", {
     Size = UDim2.new(0, 14, 0, 38), BackgroundTransparency = 1, Text = "▼",
-    TextColor3 = C.Muted, Font = Enum.Font.GothamBold, TextSize = 9,
+    TextColor3 = C.Accent, Font = Enum.Font.GothamBold, TextSize = 9,
 }, eggHead)
 local metaLbl = mk("TextLabel", {
     Size = UDim2.new(1, -18, 0, 20), Position = UDim2.new(0, 16, 0, 0),
     BackgroundTransparency = 1, Text = "🥚 เลือก 0/0 · ยังไม่เลือก",
-    TextColor3 = C.Sub, Font = Enum.Font.GothamBold, TextSize = 11,
+    TextColor3 = C.Text, Font = Enum.Font.GothamBold, TextSize = 11,
     TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
 }, eggHead)
 local spawnLbl = mk("TextLabel", {
@@ -543,11 +614,12 @@ local spawnLbl = mk("TextLabel", {
 --    📐 สูง 166 = padding 8 + แถว 72 + ช่อง 6 + แถว 72 + padding 8 → 2 แถวแรกเห็นเต็ม ๆ ไม่โดนตัด
 local grid = mk("ScrollingFrame", {
     Size = UDim2.new(1, 0, 0, 166), BackgroundColor3 = C.BgDark,
-    BackgroundTransparency = 0.35, BorderSizePixel = 0, ScrollBarThickness = 4,
+    BackgroundTransparency = 0.55, BorderSizePixel = 0, ScrollBarThickness = 4,
     ScrollBarImageColor3 = C.Stroke, AutomaticCanvasSize = Enum.AutomaticSize.Y,
-    CanvasSize = UDim2.new(0, 0, 0, 0), LayoutOrder = 7,
+    CanvasSize = UDim2.new(0, 0, 0, 0), LayoutOrder = 9,
 }, body)
 mk("UICorner", { CornerRadius = UDim.new(0, 10) }, grid)
+mk("UIStroke", { Color = C.Stroke, Thickness = 1, Transparency = 0.6 }, grid)
 mk("UIPadding", { PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8),
                   PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, grid)
 mk("UIGridLayout", {
@@ -557,32 +629,35 @@ mk("UIGridLayout", {
 
 -- 5) หัวข้อ "ล็อก" (พับได้)
 local logHead = mk("TextButton", {
-    Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, LayoutOrder = 8,
+    Size = UDim2.new(1, 0, 0, 22), BackgroundColor3 = C.BgDark,
+    BackgroundTransparency = 0.45, LayoutOrder = 10,
     AutoButtonColor = false, Text = "",
 }, body)
+mk("UICorner", { CornerRadius = UDim.new(0, 8) }, logHead)
 local logChev = mk("TextLabel", {
     Size = UDim2.new(0, 14, 0, 22), BackgroundTransparency = 1, Text = "▼",
-    TextColor3 = C.Muted, Font = Enum.Font.GothamBold, TextSize = 9,
+    TextColor3 = C.Accent, Font = Enum.Font.GothamBold, TextSize = 9,
 }, logHead)
 mk("TextLabel", {
     Size = UDim2.new(1, -60, 0, 22), Position = UDim2.new(0, 16, 0, 0),
-    BackgroundTransparency = 1, Text = "📋 ล็อก", TextColor3 = C.Sub,
+    BackgroundTransparency = 1, Text = "📋 ล็อก", TextColor3 = C.Text,
     Font = Enum.Font.GothamBold, TextSize = 11.5,
     TextXAlignment = Enum.TextXAlignment.Left,
 }, logHead)
 local logClear = mk("TextButton", {
     Size = UDim2.new(0, 44, 0, 20), Position = UDim2.new(1, -46, 0, 1),
-    BackgroundColor3 = C.Card, BorderSizePixel = 0, AutoButtonColor = true,
+    BackgroundColor3 = C.Off, BorderSizePixel = 0, AutoButtonColor = true,
     Text = "ล้าง", TextColor3 = C.Sub, Font = Enum.Font.Gotham, TextSize = 10,
 }, logHead)
-mk("UICorner", { CornerRadius = UDim.new(0, 6) }, logClear)
+mk("UICorner", { CornerRadius = UDim.new(0, 7) }, logClear)
 
 -- 6) ล็อก : 120px (เดิม 64px) — อ่านได้ ~9 บรรทัด
 local logBox = mk("Frame", {
     Size = UDim2.new(1, 0, 0, 120), BackgroundColor3 = C.Log,
-    BackgroundTransparency = 0.15, BorderSizePixel = 0, LayoutOrder = 9,
+    BackgroundTransparency = 0.15, BorderSizePixel = 0, LayoutOrder = 11,
 }, body)
-mk("UICorner", { CornerRadius = UDim.new(0, 8) }, logBox)
+mk("UICorner", { CornerRadius = UDim.new(0, 10) }, logBox)
+mk("UIStroke", { Color = C.Stroke, Thickness = 1, Transparency = 0.65 }, logBox)
 local logLbl = mk("TextLabel", {
     Size = UDim2.new(1, -14, 1, -10), Position = UDim2.new(0, 7, 0, 5),
     BackgroundTransparency = 1, Text = "", TextColor3 = C.Muted,
@@ -593,23 +668,17 @@ local logLbl = mk("TextLabel", {
 -- 7) footer : ตัวนับ + ปุ่มทำลาย (แยกห่างจากปุ่มหลัก กันคลิกพลาด)
 local foot = mk("Frame", {
     Size = UDim2.new(1, 0, 0, 36), BackgroundColor3 = C.BgDark,
-    BackgroundTransparency = 0.35, BorderSizePixel = 0, LayoutOrder = 10,
+    BackgroundTransparency = 0.30, BorderSizePixel = 0, LayoutOrder = 12,
 }, body)
-mk("UICorner", { CornerRadius = UDim.new(0, 9) }, foot)
+mk("UICorner", { CornerRadius = UDim.new(0, 10) }, foot)
+mk("UIStroke", { Color = C.Stroke, Thickness = 1, Transparency = 0.6 }, foot)
 local countLbl = mk("TextLabel", {
-    Size = UDim2.new(1, -104, 1, 0), Position = UDim2.new(0, 11, 0, 0),
+    Size = UDim2.new(1, -22, 1, 0), Position = UDim2.new(0, 11, 0, 0),
     BackgroundTransparency = 1, Text = "เก็บแล้ว 0 ใบ", TextColor3 = C.Sub,
     Font = Enum.Font.Gotham, TextSize = 11.5,
     TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
 }, foot)
-local rejoinBtn = mk("TextButton", {
-    Size = UDim2.new(0, 86, 1, -8), Position = UDim2.new(1, -92, 0, 4),
-    BackgroundTransparency = 1, BorderSizePixel = 0, AutoButtonColor = true,
-    Text = "🔁 รีจอย", TextColor3 = Color3.fromRGB(248, 113, 113),
-    Font = Enum.Font.GothamBold, TextSize = 11.5,
-}, foot)
-mk("UICorner", { CornerRadius = UDim.new(0, 8) }, rejoinBtn)
-mk("UIStroke", { Color = Color3.fromRGB(239, 68, 68), Thickness = 1.2, Transparency = 0.25 }, rejoinBtn)
+-- (ปุ่ม 🔁 รีจอย ย้ายไปอยู่ในเมนู "🔁 รีจอย" ใต้แถวปุ่มแล้ว · ระบบเซฟถูกลบออก r23)
 
 -- 📐 ความสูงหน้าต่าง = "ตามเมนูที่เปิดอยู่จริง" — พับส่วนไหน = ย่อลงทันที (ไม่มีที่ว่างเปล่าค้าง)
 local function contentHeight()
@@ -618,6 +687,8 @@ local function contentHeight()
     h = h + 40 + 8                       -- แถว 🎯 วาร์ป + 👑 Giant
     h = h + 36 + 8                       -- แถว 👁️ + 🔔
     h = h + 36 + 8                       -- แถว 🎮 ภาพกาก + 🌋 + 👀
+    h = h + 22 + 8                       -- หัวข้อ "🔁 รีจอย"
+    if SVUI.panel.Visible then h = h + 46 + 8 end
     h = h + 38 + 8                       -- หัวข้อ "ไข่"
     if grid.Visible then h = h + 166 + 8 end
     h = h + 22 + 8                       -- หัวข้อ "ล็อก"
@@ -642,6 +713,11 @@ end)
 logHead.Activated:Connect(function()
     logBox.Visible = not logBox.Visible
     logChev.Text = logBox.Visible and "▼" or "▶"
+    reflow()
+end)
+SVUI.head.Activated:Connect(function()
+    SVUI.panel.Visible = not SVUI.panel.Visible
+    SVUI.chev.Text = SVUI.panel.Visible and "▼" or "▶"
     reflow()
 end)
 
@@ -979,13 +1055,13 @@ local function applyUI()
                 t.badge.Visible = true
                 t.q.Text = (mode == "auto") and "∞" or tostring(idx)
                 t.tile.BackgroundColor3 = (mode == "auto")
-                    and Color3.fromRGB(18, 51, 36)      -- 🟩 เขียว = คิวหลายใบ (กดค้าง)
-                    or  (tgt and Color3.fromRGB(66, 48, 18)   -- 🟫 อำพัน = เป้าหมายใบเดียว
-                        or  Color3.fromRGB(21, 40, 68))       -- 🟦 น้ำเงิน = ใบเดียวปกติ
+                    and Color3.fromRGB(15, 63, 57)       -- 🟩 เขียวมิ้นต์ = คิวหลายใบ (กดค้าง)
+                    or  (tgt and Color3.fromRGB(77, 57, 13)   -- 🟫 อำพัน = เป้าหมายใบเดียว
+                        or  Color3.fromRGB(45, 38, 92))       -- 🟪 ม่วงเข้ม = ใบเดียวปกติ
                 t.stroke.Thickness = 2.4
             else
                 t.badge.Visible = false
-                t.tile.BackgroundColor3 = tgt and Color3.fromRGB(66, 48, 18) or C.Card
+                t.tile.BackgroundColor3 = tgt and Color3.fromRGB(77, 57, 13) or C.Card
                 t.stroke.Thickness = tgt and 2.4 or 1.4
             end
         end
@@ -1113,7 +1189,7 @@ for i, row in ipairs(EGG_DATA) do
         Size = UDim2.new(0, 64, 0, 74), BackgroundColor3 = C.Card,
         BorderSizePixel = 0, AutoButtonColor = true, LayoutOrder = i, Image = "",
     }, grid)
-    mk("UICorner", { CornerRadius = UDim.new(0, 9) }, tile)
+    mk("UICorner", { CornerRadius = UDim.new(0, 10) }, tile)
     local stroke = mk("UIStroke", { Color = col, Thickness = 1.4 }, tile)
 
     -- 🖼️ รูปไข่ : มี asset ในตาราง → ใช้เลย / ยังไม่มี → รอสแกน "โมเดลในแมพ" มาเติมทีหลัง
@@ -1133,8 +1209,9 @@ for i, row in ipairs(EGG_DATA) do
 
     mk("TextLabel", {
         Size = UDim2.new(1, -4, 0, 15), Position = UDim2.new(0, 2, 1, -17),
-        BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45,
+        BackgroundTransparency = 1,
         Text = short, TextColor3 = col, Font = Enum.Font.GothamBold, TextSize = 8,
+        TextStrokeColor3 = Color3.new(0, 0, 0), TextStrokeTransparency = 0.4,
         TextTruncate = Enum.TextTruncate.AtEnd,
     }, tile)
 
@@ -1160,7 +1237,7 @@ for i, row in ipairs(EGG_DATA) do
     -- 🟣 แถบความคืบหน้า 3 วิ — feedback ให้เห็นว่า "กำลังกดค้าง"
     local prog = mk("Frame", {
         Size = UDim2.new(0, 0, 0, 3), Position = UDim2.new(0, 0, 1, -3),
-        BackgroundColor3 = Color3.fromRGB(168, 85, 247), BorderSizePixel = 0,
+        BackgroundColor3 = C.Accent, BorderSizePixel = 0,
         Visible = false, ZIndex = 7,
     }, tile)
 
@@ -2470,7 +2547,7 @@ end
 local previewClone = nil   -- โคลนที่วางอยู่ตอนนี้ (nil = ไม่ได้เปิดดู)
 
 local PREVIEW_TEXT   = "👀"                            -- ปุ่มเป็นไอคอนในแถบปุ่มใหม่
-local PREVIEW_COLOR  = Color3.fromRGB(168, 85, 247)   -- 🟣 ปิดอยู่
+local PREVIEW_COLOR  = Color3.fromRGB(147, 51, 237)   -- 🟣 ปิดอยู่ (ม่วงเข้มเข้าธีม)
 
 -- ยกเลิก/ลบทิ้งโคลนที่วางอยู่ — เรียกได้แม้ไม่มีโคลน (ไม่ฟ้อง)
 local function clearPreview(why)
@@ -3028,7 +3105,7 @@ gfxBtn.Activated:Connect(function()
     local lvl = (GFX.getLevel() + 1) % 4        -- 0 → 1 → 2 → 3 → 0
     GFX.setLevel(lvl)
     gfxBtn.Text = GFX.text[lvl + 1]
-    gfxBtn.BackgroundColor3 = GFX.color[lvl + 1]
+    gfxBtn.BackgroundColor3 = ({ C.Off, C.Green, C.Amber, C.Red })[lvl + 1]  -- แมปโทนสีใหม่ (ค่าใน GFX เป็นของเดิม)
     if lvl == 0 then
         setStatus("ภาพกาก: ปิด")
         logLine("[🎮] คืนกราฟิกปกติแล้ว (ทุกอย่างกลับเหมือนเดิม)")
@@ -3052,7 +3129,7 @@ dipBtn.Activated:Connect(function()
         logLine("[🌋] เปิดดรอปลาวา - จะไต่ 1->4 ก่อนกลับแปลง")
         setStatus("ลาวา : เปิด", C.Amber)
     else
-        dipBtn.BackgroundColor3 = Color3.fromRGB(107, 114, 128)
+        dipBtn.BackgroundColor3 = C.Off
         logLine("[🌋] ปิดดรอปลาวา - เก็บแล้วกลับแปลงเลย")
         setStatus("ลาวา : ปิด")
     end
@@ -3068,7 +3145,7 @@ end)
 autoBtn.Activated:Connect(function()
     autoFarmOn = not autoFarmOn
     autoBtn.Text = autoFarmOn and "🔄 ออโต้: เปิด" or "🔄 ออโต้: ปิด"
-    autoBtn.BackgroundColor3 = autoFarmOn and C.Green or Color3.fromRGB(107, 114, 128)
+    autoBtn.BackgroundColor3 = autoFarmOn and C.Green or C.Off
     refreshSelection()   -- บรรทัดสถานะ/badge อัปเดตโหมดเป็น ∞ ทันที
     logLine(autoFarmOn
         and "[🔄] เปิดฟาร์มออโต้ - ไม่หยุดเองเมื่อไข่หมดในแมพ"
@@ -3079,7 +3156,7 @@ end)
 espBtn.Activated:Connect(function()
     espEnabled = not espEnabled
     espBtn.Text = espEnabled and "👁️ ESP: เปิด" or "👁️ ESP: ปิด"
-    espBtn.BackgroundColor3 = espEnabled and C.Accent or Color3.fromRGB(107, 114, 128)
+    espBtn.BackgroundColor3 = espEnabled and C.Accent or C.Off
     refreshSelection()   -- บรรทัดสถานะมี "· 👁️ เปิด/ปิด" ต่อท้าย
     logLine(espEnabled
         and "[👁️] เปิด ESP ปกติ (ไข่ที่แตะเลือก + 👑 Giant ตลอดเวลา)"
@@ -3303,9 +3380,10 @@ warpBtn.Activated:Connect(function()
     end)
 end)
 
--- 🔁 รีจอย — ระบบเดิมจาก VIP.txt (คัดมาใช้ตามคำสั่งผู้ใช้)
+-- 🔁 รีจอย — เมนู "🔁 รีจอย" (ย้ายมาจาก footer) — ลอจิกแบบ Roblox.txt :
+--    ≤1 คน = Kick("Rejoining...") → wait 0.5 → Teleport ห้องใหม่ / มีคน = เข้าห้องเดิม (JobId เดิม)
 --    ⛔ ไม่ใช้ SetTeleportGui อีก → ตัวนี้ทำให้ติด error 773 "เทเลพอร์ตไม่สำเร็จ"
-rejoinBtn.Activated:Connect(function()
+SVUI.rejoin.Activated:Connect(function()
     local placeId, jobId = game.PlaceId, game.JobId
 
     isFarming = false
@@ -3315,15 +3393,17 @@ rejoinBtn.Activated:Connect(function()
     clearPreview("รีจอย")
 
     local total = #Players:GetPlayers()
-    rejoinBtn.Text = "⏳ รีจอย"
+    SVUI.rejoin.Text = "⏳ รีจอย"
     setStatus("กำลังรีจอย ...", C.Amber)
     logLine("[🔁] รีจอย (" .. total .. " คนในห้อง)")
 
     -- 🙈 ปิด UI เราไม่ให้กะพริบระหว่างย้าย
     pcall(function() sg.Enabled = false end)
 
-    -- ของเดิม: อยู่คนเดียว (≤1) → ออกแล้วเข้าห้องใหม่ / มีคนอื่น → เข้าห้องเดิม (JobId เดิม)
+    -- แบบ Roblox.txt: อยู่คนเดียว (≤1) → Kick("Rejoining...") แล้วเทเลพอร์ตห้องใหม่ / มีคนอื่น → เข้าห้องเดิม (JobId เดิม)
     if total <= 1 then
+        pcall(function() player:Kick("Rejoining...") end)
+        task.wait(0.5)
         pcall(function()
             game:GetService("TeleportService"):Teleport(placeId, player)
         end)
@@ -3337,7 +3417,7 @@ rejoinBtn.Activated:Connect(function()
     task.wait(4)
     if player.Parent then
         pcall(function() sg.Enabled = true end)
-        rejoinBtn.Text = "🔁 รีจอย"
+        SVUI.rejoin.Text = "🔁 รีจอย (คนเดียว = ห้องใหม่ / มีคน = ห้องเดิม)"
         setStatus("รีจอยไม่สำเร็จ", C.Red)
         logLine("[X] รีจอยไม่สำเร็จ - ลองใหม่")
     end
@@ -3446,10 +3526,18 @@ task.spawn(function()
     end)
 end)
 
+-- ============================================================
+-- ⚠️ r23 : ระบบเซฟ/โหลดตั้งค่า (apex_settings_*.json) ถูกลบออกทั้งหมด — ใช้ไม่ได้ตามคำสั่ง
+--    (ไฟล์ apex_settings_*.json เก่าที่เคยเขียนค้างไว้ = ไม่มีผลอะไรแล้ว ลบไฟล์ทิ้งได้เลย)
+-- ============================================================
+
 logLine(CFG.SHIELD and "[OK] ระบบกันเปิดแล้ว - บล็อก Ban/Kick/Analytics/FPS"
     or "[!] ระบบกันปิดอยู่ (CFG.SHIELD = false) - ไว้เช็กสาเหตุแอปหลุด")
 logLine("[OK] เพิ่มแล้ว : 🔄 ฟาร์มออโต้ · 🎯 วาร์ปตามที่เลือก · 👀 View แบบแตะ · 🔔 แจ้งเตือน 1 นาที")
 logLine("[OK] 📜 log ทุกเหตุการณ์ลง EGG_LITE_LOG.txt (หน้าจอโชว์เฉพาะบั๊ก) · หน้าต่าง reflow ตามเมนู")
 logLine("[OK] 🎮 ภาพกาก 3 ระดับพร้อม (ปิด→1 เบา→2 กลาง→3 กากสุด) · คุ้มกัน UI/ESP/ไข่")
+logLine("[OK] 🔁 เมนูรีจอยพร้อม - คนเดียว = Kick→ห้องใหม่ / มีคน = ห้องเดิม (แบบ Roblox.txt) · ระบบเซฟ/Rollback ถูกลบออก (r23/r24)")
+logLine("[🌋] ดรอปลาวาเปิดตั้งแต่โหลด (ค่าเริ่มต้น r25) - เก็บแล้วไต่ 1->4 ก่อนกลับแปลง")
+logLine("[OK] 🎨 UI ใหม่ r20 - ธีมมิดไนท์ไวโอเล็ต (การ์ดขอบม่วง + หัวข้อ pill + แถบไล่เฉดบนสุด)")
 logLine("[OK] EGG LITE พร้อม - แตะ = ใบเดียว / กดค้าง 3 วิ = คิวหลายใบ")
-print("[EGG LITE r18] loaded - notify 60s + ESP 2-part + auto/warp buttons + gfx 3-level + file log")
+print("[EGG LITE r25] loaded - lava dip ON by default + rejoin (Roblox.txt style: kick+reteleport when alone) + midnight violet UI + notify 60s + ESP 2-part + auto/warp buttons + gfx 3-level + file log (save & rollback systems removed)")
