@@ -227,15 +227,15 @@ local FALLBACK_GLYPH = {
 -- { ชื่อเต็ม, ระดับ, assetId (ว่าง = ไม่มีรูป), ชื่อย่อ }
 local EGG_DATA = {
     { "Admin Egg",       "Secret",    "",                 "Admin" },
-    { "Volcanic Egg",    "Volcanic",  "",                 "Volcanic" },
+    { "Volcanic Egg",    "Ethereal",  "132679696143806",  "Volcanic" },
     { "Solaris Egg",     "Ethereal",  "131016816558781",  "Solaris" },
     { "Cherub Egg",      "Ethereal",  "78949206711037",   "Cherub" },
     { "Blackhole Egg",   "Ethereal",  "133246489138606",  "Blackhole" },
-    { "Dragon Egg",      "Ethereal",  "",                 "Dragon" },
+    { "Dragon Egg",      "Ethereal",  "82471692202770",   "Dragon" },
     { "Galaxy Egg",      "Divine",    "124675079216303",  "Galaxy" },
     { "Aurora Egg",      "Divine",    "104054291691153",  "Aurora" },
-    { "Giant Egg",       "Divine",    "",                 "Giant" },
-    { "Bloom Egg",       "Divine",    "",                 "Bloom" },
+    { "Giant Egg",       "Ethereal", "108761365537266",  "Giant" },
+    { "Bloom Egg",       "Divine",    "97049339425818",   "Bloom" },
     { "Soul Egg",        "Mythic",    "120412681051430",  "Soul" },
     { "Sinister Egg",    "Mythic",    "103306547790688",  "Sinister" },
     { "Flaming Egg",     "Mythic",    "132736734146055",  "Flaming" },
@@ -244,7 +244,7 @@ local EGG_DATA = {
     { "Skull Egg",       "Mythic",    "82409969049724",   "Skull" },
     { "Crystal Egg",     "Mythic",    "115371319949206",  "Crystal" },
     { "Diamond Egg",     "Mythic",    "133543115652338",  "Diamond" },
-    { "Tidal Egg",       "Mythic",    "",                 "Tidal" },
+    { "Tidal Egg",       "Mythic",    "83862730075949",   "Tidal" },
     { "Devil Fruit Egg", "Mythic",    "",                 "DevilFruit" },
     { "Golden Egg",      "Legendary", "106524193083708",  "Golden" },
     { "Glass Egg",       "Legendary", "128678801950944",  "Glass" },
@@ -2756,7 +2756,7 @@ task.spawn(function()
 end)
 
 -- 🖼️ ดูด "ที่อยู่รูป" จากโมเดลไข่ที่ลอยอยู่ในแมพ (Decal / Texture / Mesh / ParticleEmitter)
---    ใช้เติมรูปให้ไข่ที่ไม่มี asset ในตาราง : Admin, Volcanic, Dragon, Giant, Bloom, Tidal, DevilFruit
+--    ใช้เป็นสำรองสุดท้ายให้ไข่ที่ยังไม่มีรูปเลย (Admin / DevilFruit — ถ้าดึงจาก UI ด้านล่างไม่ได้)
 local function eggTextureOf(obj)
     if not obj then return nil end
     local ok, url = pcall(function()
@@ -2787,6 +2787,107 @@ local function eggTextureOf(obj)
     end
     return url
 end
+
+-- 🖼️ ดึงรูปไข่จริงจาก "ข้อมูล/UI ของเกม" มาเติม tile ที่ assetId ยังว่าง (Admin / DevilFruit)
+--    แหล่ง 1 : โมดูล ReplicatedStorage.GameData.Eggs (ตัวเดียวกับที่ดัชนีเกมใช้แสดงรูป ครบ 30 ไข่)
+--    แหล่ง 2 : UI ดัชนีจริง PlayerGui.Main.Index.Holders.EggsHolder.<ชื่อไข่>.ImageLabel (ตามคำสั่ง "ดึง UI มาใช้")
+--    แหล่ง 3 : เทมเพลต ReplicatedStorage.Assets.Eggs.<ชื่อไข่> ดูดเท็กซ์เจอร์โมเดล (ครบ 32 ไข่)
+--    · ดึงเฉพาะ tile ที่ hasImg = false เท่านั้น -> ไม่ทับรูปเดิม ไม่ยุ่งลอจิกฟาร์ม
+--    · ทุกแหล่งห่อ pcall -> เกมแก้โครงสร้างเมื่อไหร่ก็ไม่กระทบระบบอื่น
+local function pullEggImagesFromUI()
+    local filled = {}
+    -- แปลงค่ารูปเป็น URL ใช้ได้ ("rbxassetid://..." หรือเลขล้วน)
+    local function norm(u)
+        if type(u) == "number" then u = tostring(u) end
+        if type(u) ~= "string" or u == "" then return nil end
+        if string.find(u, "://", 1, true) then return u end
+        local d = string.gsub(u, "%D", "")
+        if d == "" then return nil end
+        return "rbxassetid://" .. d
+    end
+    -- ใส่รูปให้ tile ถ้ายังไม่มี (มีแล้ว -> ข้าม ไม่ทับของเดิม)
+    local function take(row, u)
+        if not u then return end
+        local t = tileByEgg[row[1]]
+        if not t or t.hasImg then return end
+        t.img.Image = u
+        t.img.Visible = true
+        t.fb.Visible = false
+        t.hasImg = true
+        filled[#filled + 1] = row[4]
+    end
+
+    -- แหล่ง 1 : โมดูล GameData.Eggs (ค่า Image rbxassetid ตรงจากเกม)
+    local ok1, err1 = pcall(function()
+        local gd = RS:FindFirstChild("GameData")
+        local em = gd and gd:FindFirstChild("Eggs")
+        local data = em and require(em)
+        if type(data) ~= "table" then return end
+        for _, row in ipairs(EGG_DATA) do
+            local t = tileByEgg[row[1]]
+            if t and not t.hasImg then
+                local e = data[row[1]]
+                take(row, norm(type(e) == "table" and e.Image or nil))
+            end
+        end
+    end)
+    if not ok1 then
+        logLine("[X] ดึงรูปจาก GameData.Eggs ไม่ได้ : " .. string.sub(tostring(err1), 1, 60))
+    end
+
+    -- แหล่ง 2 : UI ดัชนีของเกม (รูปที่หน้าดัชนีใช้แสดงจริง)
+    local ok2, err2 = pcall(function()
+        local pg = player:FindFirstChild("PlayerGui")
+        local main = pg and pg:FindFirstChild("Main")
+        local idx = main and main:FindFirstChild("Index")
+        local holders = idx and idx:FindFirstChild("Holders")
+        local eggsH = holders and holders:FindFirstChild("EggsHolder")
+        if not eggsH then return end
+        for _, row in ipairs(EGG_DATA) do
+            local t = tileByEgg[row[1]]
+            if t and not t.hasImg then
+                local cell = eggsH:FindFirstChild(row[1])
+                local il = cell and cell:FindFirstChild("ImageLabel")
+                take(row, norm(il and il.Image))
+            end
+        end
+    end)
+    if not ok2 then
+        logLine("[X] ดึงรูปจากดัชนีเกม ไม่ได้ : " .. string.sub(tostring(err2), 1, 60))
+    end
+
+    -- แหล่ง 3 : เทมเพลตโมเดลใน ReplicatedStorage (ดูดเท็กซ์เจอร์ — เผื่อไข่พิเศษ 2 ตัว)
+    local ok3, err3 = pcall(function()
+        local assets = RS:FindFirstChild("Assets")
+        local eggsF = assets and assets:FindFirstChild("Eggs")
+        if not eggsF then return end
+        for _, row in ipairs(EGG_DATA) do
+            local t = tileByEgg[row[1]]
+            if t and not t.hasImg then
+                local tpl = eggsF:FindFirstChild(row[1])
+                if tpl then take(row, eggTextureOf(tpl)) end
+            end
+        end
+    end)
+    if not ok3 then
+        logLine("[X] ดึงรูปจากเทมเพลตไข่ ไม่ได้ : " .. string.sub(tostring(err3), 1, 60))
+    end
+
+    if #filled > 0 then
+        logLine("[🖼️] ได้รูปจากข้อมูล/UI เกม : " .. table.concat(filled, " "))
+    end
+    return #filled
+end
+
+-- ⏱️ เรียกดึงรูป 2 ครั้ง : ตอนโหลด (4 วิ) และซ้ำอีก (15 วิ) เผื่อ UI ดัชนีเกมสร้างช้า
+task.spawn(function()
+    pcall(function()
+        task.wait(4)
+        pullEggImagesFromUI()
+        task.wait(11)
+        pullEggImagesFromUI()
+    end)
+end)
 
 -- ============================================================
 -- 👁️ ESP ไข่ — "ยกระบบ ESP ของ 2.lua มาใส่" (ตามคำสั่งรอบนี้)
