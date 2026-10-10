@@ -77,6 +77,20 @@ local CFG = {
     --       · หาย = ตัว hook __namecall คือตัวการ (จุดเสี่ยง #1 ของ client crash)
     --       · ยังหลุด = ไม่ใช่ตรงนี้ → ไปเช็กตัวรัน/งานต่อเฟรมต่อ
     SHIELD    = true,
+
+    -- 🍬 r27 : ระบบเก็บแคนดี้ฮาโลวีน (ค่าจริงจาก GameData.Halloween)
+    CANDY_ON         = false, -- เริ่ม "ปิด" → กดปุ่ม 🍬 เพื่อเปิด
+    CANDY_WAIT       = 0.5,   -- หน่วงสแกนหาแคนดี้ (วินาที)
+    CANDY_RANGE      = 35,    -- PickupRange จริงของเกม (studs)
+    CANDY_COOLDOWN   = 2.15,  -- เกมคูลดาวน์ 2 วิ → เว้น +0.15 กันชน
+    CANDY_FLY        = true,  -- บินไปหาเมื่ออยู่นอกระยะ (สลับกับฟาร์มไข่ — เลือกได้ทีละระบบ)
+    CANDY_DEPOSIT    = true,  -- ถือครบ → บินไปจุดฝาก (HalloweenCandyDeposit)
+    CANDY_DEPOSIT_MIN = 1,    -- ⭐ เก็บ 1 ครั้ง = ไปฝากเลย (เลขลอย ๆ บนหัว "ไม่ใช่จำนวนชิ้น"
+                              --    แต่คือค่า token — Halloween_Candy.lua L424 -> Amounts[Id])
+    CANDY_SPOIL_SAFE  = 6,    -- เหลือเวลาน้อยกว่านี้ → เลิกเก็บแล้วรีบไปฝากก่อนเน่า
+    CANDY_MAX_TRAVEL  = 600,  -- ⭐ ไม่บินไปไกลกว่านี้ (studs) กันบินข้ามแมพเพื่อแต้มเดียว
+    CANDY_FLY_TIME    = 15,   -- ⭐ เวลาบินสูงสุดต่อเที่ยว (วิ) — 8 วิ ไม่พอสำหรับทางไกล
+    CANDY_HOVER       = 18,   -- ⭐ ลอย "เหนือ" จุดเก็บ/จุดฝาก — ห้ามลดตัวลงไป (สัตว์จะจมดินติด)
 }
 
 -- ---------- Remote (ยืนยันจาก ReplicatedStorage_Dump) ----------
@@ -264,6 +278,7 @@ local EGG_DATA = {
 local selectedEggs = {}      -- ลำดับในตาราง = ลำดับความสำคัญตอนสแกน
 local isFarming   = false
 local isGrabbing  = false
+local CANDY_STOP  = nil      -- 🍬 mutual exclusion : ฟาร์มไข่กับฟาร์มแคนดี้ "เลือกได้ทีละระบบ"
 local homeCFrame  = nil
 local dipEnabled  = true     -- 🌋 สวิตช์ดรอปลาวา (ค่าเริ่มต้น "เปิด" ตั้งแต่โหลด — r25 ตามคำสั่ง)
 local dipRunning  = false    -- กันรันซ้อนระหว่างรอบดรอป
@@ -536,7 +551,7 @@ local actions4 = mk("Frame", {
 mk("UIListLayout", { Padding = UDim.new(0, 7), FillDirection = Enum.FillDirection.Horizontal }, actions4)
 
 local gfxBtn = mk("TextButton", {
-    Size = UDim2.new(1, -101, 1, 0), BackgroundColor3 = C.Off,
+    Size = UDim2.new(1, -148, 1, 0), BackgroundColor3 = C.Off,
     BorderSizePixel = 0, AutoButtonColor = true, Text = "🎮 ภาพกาก: ปิด",
     TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 11,
     TextTruncate = Enum.TextTruncate.AtEnd,
@@ -1500,7 +1515,18 @@ local function startNoClip()
             if char then
                 local n = 0
                 for _, q in ipairs(char:GetDescendants()) do
-                    if q:IsA("BasePart") then n = n + 1; parts[n] = q end
+                    -- ⛏️ ห้ามแตะ noclip "สัตว์ที่ขี่อยู่" (Model ที่มี Humanoid อยู่ในตัว)
+                    --    ไม่งั้นตัวสัตว์จะไม่มีอะไรกันพื้น -> จมดิน (บัค: ขี่สัตว์ใหญ่แล้วจม)
+                    if q:IsA("BasePart") then
+                        local skip, a = false, q.Parent
+                        while a and a ~= char do
+                            if a:IsA("Model") and a:FindFirstChildOfClass("Humanoid") then
+                                skip = true; break
+                            end
+                            a = a.Parent
+                        end
+                        if not skip then n = n + 1; parts[n] = q end
+                    end
                 end
                 for i = #parts, n + 1, -1 do parts[i] = nil end
             end
@@ -3205,6 +3231,7 @@ startBtn.Activated:Connect(function()
     end
 
     isFarming = true
+    if CANDY_STOP then CANDY_STOP("ฟาร์มไข่") end   -- 🍬 mutual exclusion
     onceNoTargetAt = 0
     startBtn.Text = "⏹ หยุดฟาร์ม"
     startBtn.BackgroundColor3 = C.Red
@@ -3660,3 +3687,435 @@ logLine("[🌋] ดรอปลาวาเปิดตั้งแต่โห�
 logLine("[OK] 🎨 UI ใหม่ r20 - ธีมมิดไนท์ไวโอเล็ต (การ์ดขอบม่วง + หัวข้อ pill + แถบไล่เฉดบนสุด)")
 logLine("[OK] EGG LITE พร้อม - แตะ = ใบเดียว / กดค้าง 3 วิ = คิวหลายใบ")
 print("[EGG LITE r26] loaded - anti-AFK from 2.lua (Idled->VirtualUser anti-kick) + lava dip ON by default + rejoin (Roblox.txt style) + midnight violet UI + notify 60s + ESP 2-part + auto/warp buttons + gfx 3-level + file log")
+
+-- ============================================================
+-- 🍬 r27 : ระบบเก็บแคนดี้ฮาโลวีน (Halloween Candy)
+--    • ตรวจจับด้วย "แท็กจริง" ของเกม : CollectionService:GetTagged("HalloweenCandySpawn")
+--    • ยิงด้วย fireproximityprompt → ให้ handler ของเกมเป็นคนยิง CollectCandy:FireServer(Id)
+--      (ผ่าน guard ครบทุกชั้น = ไม่ต้องยิง remote เอง → ไม่เสี่ยงโดนเช็ค type)
+--    • ⛔ เงื่อนไขที่เกมบล็อกไว้ (อ่านจากโค้ดจริง Halloween_Candy.lua L301) :
+--        1) IsLocalCarrying() = ถือไข่อยู่ในตะกร้า → เก็บไม่ได้เลย (ข้ามรอบ)
+--        2) v17               = คูลดาวน์ global 2 วิ ต่อการเก็บ 1 ครั้ง
+--        3) v16[Id]           = คูลดาวน์ต่อชิ้น 2 วิ
+--        4) GroundDrop        = แคนดี้หล่นพื้น เก็บได้เฉพาะตอนของหมด
+--    • เกมสร้าง prompt ไว้แบบ Enabled = false → เราค่อยเปิดก่อนยิง
+--      (ไม่อันตราย เพราะ handler ของเกมมี guard ของมันเองอยู่แล้ว)
+--    • ใช้ attribute "CandyPromptAvailable" ของเกมเป็นตัวบอกว่า "เก็บได้จริงไหม"
+--    • ค่าแคนดี้ (Amounts = {token = น้ำหนัก}) :
+--        Common 1/2/3 · Rare 3/4/5 · Epic 6/8/10 · Legendary 10/12/15 · Ritual Pot 50
+--    • ⛔ ห้ามแตะ DropCandy เด็ดขาด — ปุ่ม drop ตอนถือแคนดี้ = "ทิ้ง" ไม่ใช่ฝาก
+--    • จุดฝาก = แท็ก HalloweenCandyDeposit (ไม่มี remote — เดินไปยืนเฉย ๆ แล้ว server รับเอง)
+-- ============================================================
+-- ⚠️ ทั้งโมดูลต้องอยู่ใน "ฟังก์ชัน" ไม่ใช่ do...end
+--    ไฟล์นี้มี local ระดับบนสุด ~197 ตัว (ลิมิต Luau = 200 register/ฟังก์ชัน)
+--    ถ้าอยู่ใน do...end จะไปเพิ่ม register ของ chunk เดิม -> "Out of registers"
+--    ใส่ใน (function() ... end)() = register คนละเฟรม · ของเดิมกลายเป็น upvalue
+--    ขึ้นต้นด้วย ";" กัน Lua ตีความว่าเป็นการเรียกต่อจาก print(...) บรรทัดก่อนหน้า
+;(function()
+    local candyEnabled = CFG.CANDY_ON -- 🍬 เปิด/ปิดระบบเก็บแคนดี้
+    local CS          = game:GetService("CollectionService")
+    local CANDY_TAG   = "HalloweenCandySpawn"
+    local DEPOSIT_TAG = "HalloweenCandyDeposit"
+
+    local candyGot     = 0     -- เก็บได้กี่ชิ้นในรอบนี้
+    local candyTokens  = 0     -- ⭐ รวม "แต้ม" ที่เก็บได้ในรอบนี้ (อ่านจากป้าย 🍬 N)
+    local candyLastAt  = 0     -- เวลาที่ยิงล่าสุด (กันชนคูลดาวน์ 2 วิ ของเกม)
+    local noReadyLogAt = 0     -- กัน spam ลอจ "เกมยังไม่พร้อม"
+    local holdLogAt    = 0     -- กัน spam ลอจ "ถือไข่อยู่"
+    local depositFailAt = 0    -- ครั้งล่าสุดที่ไปฝากแล้วแคนดี้ไม่ลด (กันค้างวน)
+    local diagLogAt     = 0    -- กัน spam ลอจ diag (โซน / ถือ / นับ)
+    local flyLogAt      = 0    -- กัน spam ลอจตอนบิน (ลูปมันวิ่งทุก 0.5 วิ)
+
+    local function hrp()
+        local ch = player.Character
+        return ch and ch:FindFirstChild("HumanoidRootPart")
+    end
+
+    local function tagged(name)
+        local ok, list = pcall(function() return CS:GetTagged(name) end)
+        if ok and type(list) == "table" then return list end
+        return {}
+    end
+
+    local function posOf(o)
+        if not o or not o.IsA then return nil end
+        if o:IsA("BasePart") then return o.Position end
+        if o:IsA("Model") then
+            if o.PrimaryPart then return o.PrimaryPart.Position end
+            local ok, cf = pcall(function() return o:GetPivot() end)
+            if ok and cf then return cf.Position end
+        end
+        return nil
+    end
+
+    local function promptOf(o)
+        if not o or not o.IsA then return nil end
+        if o:IsA("ProximityPrompt") then return o end
+        local ok, p = pcall(function() return o:FindFirstChildWhichIsA("ProximityPrompt", true) end)
+        if ok then return p end
+        return nil
+    end
+
+    -- แคนดี้ที่ถืออยู่ในตัวตอนนี้ (NoSaveData.CarriedCandy = IntValue)
+    --    cache instance ไว้ + เตือนครั้งเดียวถ้าหาไม่เจอ (ไม่งั้นจะอ่านเป็น 0 เงียบ ๆ)
+    local carriedVal = nil
+    local carriedWarned = false
+    local function carriedCandy()
+        if carriedVal == nil then
+            local nsd = player:FindFirstChild("NoSaveData")
+            local v = nsd and nsd:FindFirstChild("CarriedCandy")
+            if v then
+                carriedVal = v
+            elseif not carriedWarned then
+                carriedWarned = true
+                logLine("[!] หา NoSaveData.CarriedCandy ไม่เจอ (NoSaveData="
+                    .. tostring(nsd) .. ") -> อ่านค่าถือแคนดี้จะเป็น 0 เสมอ")
+            end
+            if carriedVal == nil then return 0 end
+        end
+        local ok, n = pcall(function() return carriedVal.Value end)
+        if ok then return tonumber(n) or 0 end
+        carriedVal = nil      -- instance ถูกทำลาย -> หาใหม่รอบหน้า
+        return 0
+    end
+
+    -- อยู่ในโซนฮาโลวีนไหม (attribute ของตัวเรา) — เกมใช้ตัวนี้ปิด prompt
+    local function inZone()
+        local ok, v = pcall(function() return player:GetAttribute("InHalloweenZone") end)
+        return (ok and v == true)
+    end
+
+    -- 👻 แคนดี้ "ตัวผี" = โดนเก็บ/หมดอายุไปแล้ว แต่ spawn part ยังอยู่ในแมพ
+    --    เกมจะซ่อนมันโดยตั้ง Billboard.CandyAmount.ForceDisabled = true
+    --    (Halloween_Candy.lua L98/L434) และถอด visual ออกจาก Folder
+    --    -> ถ้าไม่เช็ค เราจะบินไปจุดว่าง ๆ แล้ว "มึน" วนไปมา
+    local function isGhost(o)
+        local ok, bb = pcall(function()
+            return o:FindFirstChildWhichIsA("BillboardGui", true)
+        end)
+        if ok and bb then
+            local ok2, fd = pcall(function() return bb:GetAttribute("ForceDisabled") end)
+            if ok2 and fd == true then return true end
+        end
+        return false
+    end
+
+    -- 💰 อ่าน "ค่าแต้ม" ของแคนดี้ลูกนี้ จากป้ายที่ลอยเหนือมัน
+    --    โค้ดเกม L424-427 : Label.Text = "🍬 " .. Amounts[Id]
+    --    ⚠️ เลขนี้ "ไม่ใช่จำนวนชิ้น" แต่คือค่า token ที่จะได้ตอนฝาก
+    local function candyValue(o)
+        local ok, bb = pcall(function()
+            return o:FindFirstChildWhichIsA("BillboardGui", true)
+        end)
+        if not ok or not bb then return 0 end
+        local lbl = bb:FindFirstChild("Amount")
+        if not lbl then return 0 end
+        local okT, txt = pcall(function() return lbl.Text end)
+        if not okT or type(txt) ~= "string" then return 0 end
+        return tonumber(string.match(txt, "%d+")) or 0
+    end
+
+    -- ⏳ เวลาที่แคนดี้จะ "เน่า" คงเหลือ (วินาที) — nil = ไม่มีแคนดี้ถืออยู่
+    --    CandyExpiresAt เป็น "เวลาเซิร์ฟ" ไม่ใช่ countdown → ต้องลบ GetServerTimeNow
+    local function spoilLeft()
+        local okE, exp = pcall(function() return player:GetAttribute("CandyExpiresAt") end)
+        if not okE or type(exp) ~= "number" then return nil end
+        local okT, now = pcall(function() return workspace:GetServerTimeNow() end)
+        if not okT or type(now) ~= "number" then return nil end
+        return exp - now
+    end
+
+    -- 🛴 ความสูงของสัตว์ที่ขี่อยู่ (0 = ไม่ได้ขี่) — ใช้ยกจุดยืนไม่ให้ตัวสัตว์จมดิน
+    local function mountHeight()
+        local char = player.Character
+        if not char then return 0 end
+        local top = 0
+        for _, q in ipairs(char:GetChildren()) do
+            if q:IsA("Model") and q:FindFirstChildOfClass("Humanoid") then
+                local ok, _, sz = pcall(function() return q:GetBoundingBox() end)
+                if ok and typeof(sz) == "Vector3" and sz.Y > top then top = sz.Y end
+            end
+        end
+        return top
+    end
+
+    -- 🎈 จุด "ลอยเหนือ" เป้า — ⭐ ห้ามลดตัวลงไปที่จุดเก็บ/จุดฝากเด็ดขาด
+    --    เกมตั้ง MaxActivationDistance = 35 + RequiresLineOfSight = false
+    --    -> ยิง prompt จากระยะ 35 studs ได้เลย ไม่ต้องไปยืนติดตัวมัน
+    --    (การ "ลดตัวลงไป" ทำให้สัตว์ที่ขี่จมดินแล้วติด — รายงานโดยตรงจากผู้ใช้)
+    local function hover(pos)
+        return pos + Vector3.new(0, CFG.CANDY_HOVER + mountHeight() * 0.5, 0)
+    end
+
+    -- จุดที่ใกล้สุดในลิสต์ -> (Vector3, ระยะ)
+    local function nearestOf(list, from)
+        local best, bestD = nil, math.huge
+        for _, o in ipairs(list) do
+            local p = posOf(o)
+            if p then
+                local d = (p - from).Magnitude
+                if d < bestD then best, bestD = p, d end
+            end
+        end
+        return best, bestD
+    end
+
+    -- เลือกแคนดี้เป้าหมาย
+    --    ⭐ เกณฑ์เรียง : ① อยู่ใน CANDY_MAX_TRAVEL ก่อน
+    --                    ② "แต้มสูงสุดก่อน" (ทั้งตัวที่เกมบอกพร้อม และไม่พร้อม)
+    --                    ③ เสมอกัน = เกมบอกพร้อมก่อน (attribute=true)
+    --                    ④ เสมอกันอีก = ใกล้สุด
+    --    ⚠️ ห้ามเอา attribute=true เป็น "เงื่อนไขแรก" เด็ดขาด
+    --       เพราะสูตรจริงของเกม (Halloween_Candy.lua L436) คือ
+    --         CandyPromptAvailable = มีของจริง AND InHalloweenZone
+    --                              AND NOT (ถือไข่ หรือ เพิ่งเก็บไป < 2 วิ)
+    --       ซึ่งมักเป็น false ตลอด (เคยเห็น "พร้อม 0/42")
+    --       -> ถ้าเรียงตามมันก่อน ชุดที่เลือกจะ "ว่าง" เสมอ แล้วตกไปใช้
+    --          fallback = ตัวใกล้สุด = "เก็บมั่ว" ไม่สนแต้มเลย
+    --    คืน (spawn, pos, ระยะ, แต้ม, พร้อม?, พร้อม, ไม่พร้อม, ทั้งหมด, ไกลเกิน, แต้มสูงสุด)
+    local function nearestCandy(from)
+        local bSpawn, bPos, bD, bVal, bReady = nil, nil, math.huge, -1, false
+        local nSpawn, nPos, nD               = nil, nil, math.huge
+        local farCnt, readyCnt, notReady, total, maxValue = 0, 0, 0, 0, 0
+        for _, o in ipairs(tagged(CANDY_TAG)) do
+            if not isGhost(o) then                -- 🧹 ตัด "ตัวผี" (โดนเก็บไปแล้ว) ออกก่อน
+                local p = posOf(o)
+                if p then
+                    total = total + 1
+                    local d = (p - from).Magnitude
+                    local v = candyValue(o)       -- 💰 อ่านค่าแต้มจากป้าย "🍬 N"
+                    if v > maxValue then maxValue = v end
+                    if d > CFG.CANDY_MAX_TRAVEL then
+                        farCnt = farCnt + 1       -- ไกลเกินไป -> ไม่บินไปเพื่อแต้มเดียว
+                    else
+                        local pr = promptOf(o)
+                        local ready = (pr ~= nil and pr:GetAttribute("CandyPromptAvailable") == true)
+                        if ready then readyCnt = readyCnt + 1
+                        else notReady = notReady + 1 end
+                        if d < nD then nSpawn, nPos, nD = o, p, d end
+                        -- ⭐ เรียง : แต้มสูงสุด -> พร้อม -> ใกล้สุด
+                        local better
+                        if v ~= bVal then better = v > bVal
+                        elseif ready ~= bReady then better = ready
+                        else better = d < bD end
+                        if better then bSpawn, bPos, bD, bVal, bReady = o, p, d, v, ready end
+                    end
+                end
+            end
+        end
+        if bSpawn then
+            return bSpawn, bPos, bD, bVal, bReady, readyCnt, notReady, total, farCnt, maxValue
+        end
+        return nSpawn, nPos, nD, 0, false, readyCnt, notReady, total, farCnt, maxValue
+    end
+
+    -- ยิง 1 ครั้ง -> คืน (สำเร็จ?, โค้ด, รายละเอียด)
+    local function fireOn(spawn)
+        local pr = promptOf(spawn)
+        if not pr then return false, "noPrompt" end
+        local h = hrp()
+        if not h then return false, "noChar" end
+        local p = posOf(spawn)
+        if not p then return false, "noPos" end
+        local dist = (p - h.Position).Magnitude
+        if dist > CFG.CANDY_RANGE then return false, "far", dist end
+        -- prompt ของเกมถูกปิดไว้ตอนสร้าง (Enabled = false) → เปิดก่อนยิง
+        if not pr.Enabled then pcall(function() pr.Enabled = true end) end
+        local ok, err = pcall(function() fireproximityprompt(pr) end)
+        if not ok then return false, "err", tostring(err) end
+        return true
+    end
+
+    -- หนึ่งรอบงาน
+    local function candyStep()
+        local h = hrp()
+        if not h then return end
+
+        local canMove = (not isFarming) and (not isGrabbing)
+        local car     = carriedCandy()
+        local held    = heldEggName()
+
+        -- ── diag ทุก 20 วิ : บอกชัดว่าระบบติดตรงไหน ──────────────
+        if os.clock() - diagLogAt > 20 then
+            diagLogAt = os.clock()
+            local sl = spoilLeft()
+            logLine(string.format(
+                "[🍬] diag : โซนฮาโลวีน=%s | ถือแคนดี้=%d | เน่าอีก=%s | %s",
+                tostring(inZone()), car,
+                sl and (string.format("%.0f วิ", sl)) or "-",
+                canMove and "บินได้"
+                    or (isFarming and "ฟาร์มไข่ค้าง -> ไม่บิน (กันแย่งตัว)"
+                                   or "กำลังเก็บไข่ -> ไม่บิน")))
+        end
+
+        if held then
+            -- ⛔ กติกาเกม L301 : IsLocalCarrying() = เก็บแคนดี้ไม่ได้เลย
+            if os.clock() - holdLogAt > 20 then
+                holdLogAt = os.clock()
+                logLine("[🍬] ถือ " .. held .. " อยู่ -> เก็บแคนดี้ไม่ได้ (กติกาเกม) รอวางไข่ก่อน")
+                setStatus("แคนดี้ : ติดถือไข่", C.Amber)
+            end
+            return
+        end
+
+        -- ── A) เก็บได้ปุ๊บ → ไปฝากปั๊บ ────────────────────────
+        --    ⭐ ค่า MIN = 1 เพราะ "เลขลอย ๆ" บนหัวคือค่า token ไม่ใช่จำนวนชิ้น
+        --       + แคนดี้เน่าเอง (CandyExpiresAt) → ค้างนาน = อดทุกชิ้น
+        local sl = spoilLeft()
+        local nearSpoil = (sl ~= nil and sl <= CFG.CANDY_SPOIL_SAFE)
+        if CFG.CANDY_DEPOSIT and car >= CFG.CANDY_DEPOSIT_MIN and canMove
+            and os.clock() - depositFailAt > 30 then
+            local dp, dd = nearestOf(tagged(DEPOSIT_TAG), h.Position)
+            if dp then
+                setStatus("🍬 ไปฝากแคนดี้ " .. car .. " แต้ม", C.Amber)
+                logLine("[🍬] ไปฝาก " .. car .. " แต้ม (ห่าง " .. math.floor(dd) .. " studs"
+                    .. (nearSpoil and " · ใกล้เน่า!" or "") .. ")")
+                -- ⭐ ขั้นแรก : ลอย "เหนือ" จุดฝาก — ห้ามลดตัวลงไป (สัตว์จะจมดินแล้วติด)
+                local hi = hover(dp)
+                flyTo(hi, CFG.FLY_SPEED, CFG.CANDY_FLY_TIME)
+                pcall(function() teleportTo(CFrame.new(hi)) end)
+                task.wait(1.2)
+                local after = carriedCandy()
+                -- ขั้นสอง (เฉพาะลอยแล้วยังไม่เข้า) : ลดตัว "ทีเดียว" แบบมีชนิดกัน
+                --    noclip หยุดไปแล้วตอนนี้ -> การชนิดจะกันไม่ให้จมดินติด
+                if after >= car then
+                    local low = dp + Vector3.new(0, 6 + mountHeight() * 0.5, 0)
+                    pcall(function() teleportTo(CFrame.new(low)) end)
+                    task.wait(1.2)
+                    after = carriedCandy()
+                end
+                if after >= car then
+                    depositFailAt = os.clock()
+                    logLine("[!] ถึงจุดฝากแล้วแต่แคนดี้ไม่ลด (" .. car .. " -> " .. after
+                        .. ") -> พัก 30 วิ แล้วลองใหม่ (จุดฝากอาจเปลี่ยนตำแหน่ง)")
+                else
+                    logLine("[OK] ฝากสำเร็จ " .. car .. " -> " .. after .. " แต้ม")
+                end
+                return
+            elseif os.clock() - noReadyLogAt > 15 then
+                noReadyLogAt = os.clock()
+                logLine("[!] มีแคนดี้ " .. car .. " แต้ม แต่หาแท็ก "
+                    .. DEPOSIT_TAG .. " ในแมพไม่เจอ -> ฝากเองไม่ได้")
+            end
+        end
+
+        -- ── B) เก็บแคนดี้ ──────────────────────────────────
+        local spawn, pos, dist, val, isReady, readyCnt, notReady, total, farCnt, maxV =
+            nearestCandy(h.Position)
+        if not spawn then
+            if total == 0 and os.clock() - noReadyLogAt > 15 then
+                noReadyLogAt = os.clock()
+                logLine("[🍬] ไม่เจอแคนดี้ในแมพเลย (แท็ก HalloweenCandySpawn = 0)")
+            elseif farCnt > 0 and os.clock() - noReadyLogAt > 15 then
+                noReadyLogAt = os.clock()
+                logLine("[🍬] มีแคนดี้ " .. farCnt .. " ลูก แต่ไกลเกิน "
+                    .. CFG.CANDY_MAX_TRAVEL .. " studs -> ข้าม (กันบินข้ามแมพเพื่อแต้มเดียว)")
+            end
+            return
+        end
+
+        if dist > CFG.CANDY_RANGE then
+            if CFG.CANDY_FLY and canMove then
+                if os.clock() - flyLogAt > 10 then
+                    flyLogAt = os.clock()
+                    logLine("[🍬] บินไปเก็บ " .. val .. " แต้ม "
+                        .. (isReady and "⭐เกมบอกพร้อม" or "(เกมบอกยังไม่พร้อม)")
+                        .. " ห่าง " .. math.floor(dist) .. " studs (ในระยะ " .. readyCnt
+                        .. "/" .. total .. " · แต้มสูงสุดในแมพ " .. maxV .. ")")
+                end
+                setStatus("🍬 บินไปเก็บ " .. val .. " แต้ม", C.Amber)
+                flyTo(hover(pos), CFG.FLY_SPEED, CFG.CANDY_FLY_TIME)  -- 🎈 ลอยเหนือ ห้ามลดตัวลงไป
+                -- ถ้าทางไกลบินไม่ทัน บอกไว้ใน log (จะได้รู้ว่าต้องเพิ่ม CANDY_FLY_TIME)
+                local h2 = hrp()
+                if h2 then
+                    local left = (h2.Position - pos).Magnitude
+                    if left > CFG.CANDY_RANGE and os.clock() - flyLogAt < 12 then
+                        logLine("[!] บินแล้วยังห่าง " .. math.floor(left)
+                            .. " studs -> อาจต้องเพิ่ม CANDY_FLY_TIME")
+                    end
+                end
+            elseif os.clock() - noReadyLogAt > 15 then
+                noReadyLogAt = os.clock()
+                logLine("[🍬] แคนดี้ไกล " .. math.floor(dist) .. " studs ("
+                    .. val .. " แต้ม) แต่ "
+                    .. (isFarming and "กำลังฟาร์มไข่" or "กำลังเก็บไข่")
+                    .. " -> ไม่บิน (ไม่แย่งตัว)")
+            end
+            return
+        end
+
+        local ok, code, extra = fireOn(spawn)
+        candyLastAt = os.clock()
+        if ok then
+            candyGot = candyGot + 1
+            candyTokens = candyTokens + val
+            local car2 = carriedCandy()
+            setStatus("🍬 รวม " .. candyTokens .. " แต้ม (เก็บ " .. candyGot .. " ครั้ง)", C.Green)
+            logLine("[🍬] เก็บ #" .. candyGot .. " ได้ " .. val .. " แต้ม (รวม "
+                .. candyTokens .. ") ที่ " .. math.floor(dist) .. " studs -> ถือ " .. car2)
+        elseif code == "err" then
+            logLine("[🍬] ยิงไม่ได้ : " .. tostring(extra))
+        end
+    end
+
+    -- ── ปุ่ม 🍬 ในแถบปุ่ม (เพิ่มท้ายแถว — LayoutOrder 4) ──
+    local candyBtn = mk("TextButton", {
+        Size = UDim2.new(0, 40, 1, 0), BackgroundColor3 = candyEnabled and C.Green or C.Off,
+        BorderSizePixel = 0, AutoButtonColor = true, Text = "🍬",
+        TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 17,
+        LayoutOrder = 4,
+    }, actions4)
+    mk("UICorner", { CornerRadius = UDim.new(0, 10) }, candyBtn)
+
+    candyBtn.Activated:Connect(function()
+        -- 🍬 mutual exclusion : ฟาร์มไข่กับฟาร์มแคนดี้ "เลือกได้ทีละระบบ"
+        if (not candyEnabled) and isFarming then
+            logLine("[🍬] ฟาร์มไข่กำลังทำงานอยู่ -> กด ⏹ หยุดฟาร์มก่อน แล้วค่อยเปิด 🍬")
+            setStatus("แคนดี้ : ต้องหยุดฟาร์มไข่ก่อน", C.Amber)
+            return
+        end
+        candyEnabled = not candyEnabled
+        if candyEnabled then
+            candyBtn.BackgroundColor3 = C.Green
+            logLine("[🍬] เปิดเก็บแคนดี้ - สแกนทุก " .. CFG.CANDY_WAIT
+                .. " วิ · เก็บแต้มสูงสุดก่อน · บินไกลสุด " .. CFG.CANDY_MAX_TRAVEL
+                .. " studs · ถึงระยะ " .. CFG.CANDY_RANGE .. " = ยิงเลย")
+            setStatus("แคนดี้ : เปิด", C.Amber)
+        else
+            candyBtn.BackgroundColor3 = C.Off
+            logLine("[🍬] ปิดเก็บแคนดี้ (รอบนี้เก็บ " .. candyGot .. " ครั้ง = "
+                .. candyTokens .. " แต้ม)")
+            setStatus("แคนดี้ : ปิด")
+        end
+    end)
+
+    -- ให้ระบบฟาร์มไข่ "สั่งปิด" แคนดี้ได้ (mutual exclusion — เลือกได้ทีละระบบ)
+    CANDY_STOP = function(reason)
+        if not candyEnabled then return end
+        candyEnabled = false
+        candyBtn.BackgroundColor3 = C.Off
+        logLine("[🍬] ปิดเก็บแคนดี้ -> เปิด " .. tostring(reason) .. " (สองระบบทำงานพร้อมกันไม่ได้)")
+        setStatus("แคนดี้ : ปิด", C.Amber)
+    end
+
+    -- ── ลูปหลัก ──
+    local errLogAt = 0
+    task.spawn(function()
+        while true do
+            task.wait(CFG.CANDY_WAIT)
+            if candyEnabled and os.clock() - candyLastAt >= CFG.CANDY_COOLDOWN then
+                local ok, err = pcall(candyStep)
+                if not ok and os.clock() - errLogAt > 15 then
+                    errLogAt = os.clock()
+                    logLine("[!] 🍬 ระบบแคนดี้ error : " .. tostring(err))
+                end
+            end
+        end
+    end)
+
+    logLine("[OK] 🍬 r32 ระบบเก็บแคนดี้พร้อม (ปุ่ม 🍬 ท้ายแถบ) - เริ่ม" ..
+        (candyEnabled and "เปิด" or "ปิด") .. " · ⭐ เก็บแต้มสูงสุดก่อน · บินไกลสุด "
+        .. CFG.CANDY_MAX_TRAVEL .. " studs · ⭐ ลอยเหนือ " .. CFG.CANDY_HOVER
+        .. " studs ห้ามลดตัวลงไป (กันสัตว์จมดินติด) · noclip ไม่แตะสัตว์ที่ขี่")
+end)()
+-- ============================================================
