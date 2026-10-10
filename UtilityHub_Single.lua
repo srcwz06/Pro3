@@ -91,6 +91,7 @@ local CFG = {
     CANDY_MAX_TRAVEL  = 600,  -- ⭐ ไม่บินไปไกลกว่านี้ (studs) กันบินข้ามแมพเพื่อแต้มเดียว
     CANDY_FLY_TIME    = 15,   -- ⭐ เวลาบินสูงสุดต่อเที่ยว (วิ) — 8 วิ ไม่พอสำหรับทางไกล
     CANDY_HOVER       = 18,   -- ⭐ ลอย "เหนือ" จุดเก็บ/จุดฝาก — ห้ามลดตัวลงไป (สัตว์จะจมดินติด)
+    CANDY_BUY_EGG     = true, -- 🎃 แต้มครบราคา = ซื้อ Halloween Egg ให้เลย (remote BuyHalloweenEgg)
 }
 
 -- ---------- Remote (ยืนยันจาก ReplicatedStorage_Dump) ----------
@@ -579,7 +580,8 @@ mk("UICorner", { CornerRadius = UDim.new(0, 10) }, previewBtn)
 --      · พับได้เหมือนหัวข้ออื่น — อยู่ใน do...end กันชนลิมิต 200 local
 -- ────────────────────────────────────────────────────────────
 local SVUI
-do
+-- ห่อเป็น IIFE เพื่อคืน register slots (local ใน function ซ้อน ไม่กินโควตา 200 ของไฟล์)
+;(function()
     local svHead = mk("TextButton", {
         Size = UDim2.new(1, 0, 0, 22), BackgroundColor3 = C.BgDark,
         BackgroundTransparency = 0.45, LayoutOrder = 6,
@@ -616,7 +618,7 @@ do
 
     SVUI = { head = svHead, chev = svChev, title = svTitle, panel = svPanel,
              rejoin = rejoinBtn }
-end
+end)()
 
 -- 3) หัวข้อ "ไข่" (พับได้) — ยุบ 3 label เดิมไว้ในนี้
 local eggHead = mk("TextButton", {
@@ -3587,8 +3589,10 @@ closeBtn.Activated:Connect(function()
     sg:Destroy()
 end)
 
--- ลากหน้าต่าง
-do
+-- ลากหน้าต่าง — ห่อเป็น IIFE เพื่อ "คืน register slots"
+--    Luau นับ local แยกต่อ function -> local ใน function ซ้อน ไม่กินโควตา 200 ของไฟล์
+--    (เปลี่ยนจาก do...end = function เดิม นับต่อ -> ติด Out of registers ตอนเพิ่มฟีเจอร์)
+;(function()
     local dragging, dragStart, startPos
     bar.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
@@ -3611,7 +3615,7 @@ do
             clampPos()   -- 📱 กันลากหน้าต่างออกนอกจอ (มือถือ/จอน้อย)
         end
     end)
-end
+end)()
 
 -- ⏩ พยายามข้ามหน้าโหลดของเกม (PlayerGui.Loading มี "ClickToSkipReminder" = คลิกเพื่อข้าม)
 --    ปิดซ้ำ ๆ ตลอด 25 วิแรกหลังเข้าเกม — ถ้าเกมฝืนเปิดกลับเอง ถือว่า "ข้ามไม่ได้" แล้วปล่อยผ่าน
@@ -3839,6 +3843,84 @@ print("[EGG LITE r26] loaded - anti-AFK from 2.lua (Idled->VirtualUser anti-kick
         return top
     end
 
+    -- 🎃 ร้านฮาโลวีน — ⚠️ ไข่ฮาโลวีนทั้ง 3 ตัว "ฟาร์มเก็บในแมพไม่ได้"
+    --    Halloween Egg / Premium Halloween Egg / Headless Egg
+    --    ทุกตัวมี AppearChance = 0 (+ EventOnly / Done / Premium)
+    --    -> ไม่มีทางโผล่ในแมพให้สแกนเจอ -> เพิ่มเข้าลิสต์ฟาร์มก็ไร้ประโยชน์
+    --    ทางเดียว = ซื้อด้วย Halloween Token ผ่าน remote "BuyHalloweenEgg"
+    --    ยอด token จริงอยู่ที่ LocalPlayer.SavedData.HalloweenCandy (IntValue)
+    --    (คนละตัวกับ NoSaveData.CarriedCandy = ที่ยัง "ไม่ได้ฝาก")
+    local eggPrice, eggKey = 350, "Halloween Egg"
+    local tokensVal, buyRemote, buyWarned = nil, nil, false
+
+    -- 🏪 หาตำแหน่งร้านฮาโลวีน — เกม "ปิดร้าน" ถ้าอยู่นอกโซนฮาโลวีน
+    --    หรือห่าง anchor ของร้านเกิน 30 studs (Halloween_Shop.lua L178)
+    --    -> ซื้อตรง ๆ โดยไม่ยืนใกล้ร้าน = เซิร์ฟน่าจะปฏิเสธ
+    local function shopPos()
+        for _, tag in ipairs({ "HalloweenShopGuy", "HalloweenShopPrompt" }) do
+            local ok, list = pcall(function() return tagged(tag) end)
+            if ok and list then
+                for _, o in ipairs(list) do
+                    local p = posOf(o)
+                    if p then return p end
+                end
+            end
+        end
+        return nil
+    end
+
+    local function hTokens()
+        if tokensVal == nil then
+            local sd = player:FindFirstChild("SavedData")
+            local v = sd and sd:FindFirstChild("HalloweenCandy")
+            if v then tokensVal = v end
+        end
+        if not tokensVal then return 0 end
+        local ok, n = pcall(function() return tokensVal.Value end)
+        return (ok and tonumber(n)) or 0
+    end
+
+    -- แต้มพอ = ซื้อไข่ฮาโลวีนให้เลย ( InvokeServer คืน true = สำเร็จ )
+    local function tryBuyEgg()
+        if not CFG.CANDY_BUY_EGG then return end
+        if buyRemote == nil then
+            local r = RS:WaitForChild("Remotes", 5)
+            local g = r and r:FindFirstChild("Game")
+            buyRemote = g and g:FindFirstChild("BuyHalloweenEgg")
+            if not buyRemote then
+                if not buyWarned then
+                    buyWarned = true
+                    logLine("[!] หา remote BuyHalloweenEgg ไม่เจอ -> ซื้อไข่ฮาโลวีนอัตโนมัติไม่ได้")
+                end
+                return
+            end
+        end
+        local t = hTokens()
+        if t < eggPrice then return end
+        -- 🏪 บินไปยืนใกล้ร้านก่อน (ต้อง FlatDistance ≤ 30 + อยู่ในโซนฮาโลวีน)
+        local h, sp = hrp(), shopPos()
+        if h and sp then
+            local flat = (Vector3.new(h.Position.X, 0, h.Position.Z)
+                        - Vector3.new(sp.X, 0, sp.Z)).Magnitude
+            if flat > 25 then
+                setStatus("🎃 ไปร้านฮาโลวีน", C.Amber)
+                logLine("[🎃] แต้มพอ " .. t .. " แต่ห่างร้าน " .. math.floor(flat)
+                    .. " studs -> บินไปก่อน (เกมจะปิดร้านถ้าห่าง > 30)")
+                flyTo(hover(sp), CFG.FLY_SPEED, CFG.CANDY_FLY_TIME)
+                task.wait(0.8)
+            end
+        end
+        local ok, res = pcall(function()
+            return buyRemote:InvokeServer(eggKey)
+        end)
+        if ok and res == true then
+            logLine("[🎃] แต้มครบ " .. t .. " -> ซื้อ " .. eggKey .. " สำเร็จ! (เหลือ " .. hTokens() .. ")")
+            setStatus("🎃 ซื้อ Halloween Egg แล้ว", C.Green)
+        else
+            logLine("[!] ซื้อ " .. eggKey .. " ไม่สำเร็จ : " .. tostring(res))
+        end
+    end
+
     -- 🎈 จุด "ลอยเหนือ" เป้า — ⭐ ห้ามลดตัวลงไปที่จุดเก็บ/จุดฝากเด็ดขาด
     --    เกมตั้ง MaxActivationDistance = 35 + RequiresLineOfSight = false
     --    -> ยิง prompt จากระยะ 35 studs ได้เลย ไม่ต้องไปยืนติดตัวมัน
@@ -3990,6 +4072,9 @@ print("[EGG LITE r26] loaded - anti-AFK from 2.lua (Idled->VirtualUser anti-kick
                         .. ") -> พัก 30 วิ แล้วลองใหม่ (จุดฝากอาจเปลี่ยนตำแหน่ง)")
                 else
                     logLine("[OK] ฝากสำเร็จ " .. car .. " -> " .. after .. " แต้ม")
+                    local tk = hTokens()
+                    logLine("[🍬] ยอดแต้มสะสม " .. tk .. " / " .. eggPrice .. " (ซื้อ Halloween Egg)")
+                    tryBuyEgg()   -- 🎃 พอราคาแล้วซื้อให้เลย
                 end
                 return
             elseif os.clock() - noReadyLogAt > 15 then
@@ -4113,9 +4198,10 @@ print("[EGG LITE r26] loaded - anti-AFK from 2.lua (Idled->VirtualUser anti-kick
         end
     end)
 
-    logLine("[OK] 🍬 r32 ระบบเก็บแคนดี้พร้อม (ปุ่ม 🍬 ท้ายแถบ) - เริ่ม" ..
+    logLine("[OK] 🍬 r34 ระบบเก็บแคนดี้พร้อม (ปุ่ม 🍬 ท้ายแถบ) - เริ่ม" ..
         (candyEnabled and "เปิด" or "ปิด") .. " · ⭐ เก็บแต้มสูงสุดก่อน · บินไกลสุด "
         .. CFG.CANDY_MAX_TRAVEL .. " studs · ⭐ ลอยเหนือ " .. CFG.CANDY_HOVER
-        .. " studs ห้ามลดตัวลงไป (กันสัตว์จมดินติด) · noclip ไม่แตะสัตว์ที่ขี่")
+        .. " studs ห้ามลดตัวลงไป (กันสัตว์จมดินติด)"
+        .. " · 🎃 แต้มครบ " .. eggPrice .. " = บินไปร้านแล้วซื้อ Halloween Egg ให้เลย")
 end)()
 -- ============================================================
