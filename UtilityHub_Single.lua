@@ -32,6 +32,16 @@
 --    · 🌋 r25 : ดรอปลาวาเปิดเป็นค่าเริ่มต้นตอนโหลด (ปุ่ม 🌋 = สีเขียวตั้งแต่เปิดสคริปต์)
 --    · ⏱️ r26 : Anti-AFK แกะมาจาก 2.lua ตามคำสั่ง (คัดลอกดั้งเดิม ห้ามเขียนใหม่)
 --      — Idled → VirtualUser กดแทน · กันเด้งออกห้องตอนค้าง (timeout 20 นาที)
+--    · ☯️ r43 : ฟาร์ม "หยิน-หยาง" (Yin/Yang Half) + 👁️ ESP — ปุ่ม 2 ปุ่มท้ายแถบเดียวกับ 🍬
+--      · r43 : ไม่จำกัดระยะเดินทางแล้ว — ESP เห็นที่ไหน = บินไปเก็บที่นั่น (งบเวลาบินปรับตามระยะ)
+--      · ปุ่ม ☯️ = เก็บอย่างเดียว · ปุ่ม ☯️ (ขวา) = ESP ป้าย Yin/Yang Half + ระยะ (แยกโฟลเดอร์จาก ESP ไข่)
+--      · ของจริง = HeadlessRitual.Runtime.Yin/Yang.Root.RitualPrompt
+--        (ObjectText "Yin Half"/"Yang Half" · Action "Collect" · Hold 0.7 วิ
+--         ⭐ เพดานระยะแนวนอน 14 studs — ต้องบินไป "อยู่เหนือ" ของก่อนค่อยยิง)
+--      · ของเกิดเฉพาะตอนพิธีทำงาน (Phase "AwaitingHalf") — ยังไม่เกิด = รอเฉย ๆ ห้ามบินไปแท่น
+--      · บินลอย "เหนือ" จุดเก็บ (ห้ามลดตัวลงไป — สัตว์จมดินติด) แล้วยิง prompt ด้วย fireproximityprompt
+--      · ⛔ กติกาเกม : ถือไข่อยู่ = เก็บไม่ได้เลย (IsLocalCarrying) → ระบบจะเตือนในล็อก
+--      · ⛔ mutual exclusion กับ 🍬 แคนดี้ + ฟาร์มไข่ (เลือกได้ทีละระบบ — ไม่แย่งตัวบิน)
 --
 -- ⛔ ไม่ยิง remote "TeleportToPlot" เด็ดขาด
 --    (ตามคำสั่ง — กันอาการ "Can't Teleport While Carrying Eggs")
@@ -88,10 +98,30 @@ local CFG = {
     CANDY_DEPOSIT_MIN = 1,    -- ⭐ เก็บ 1 ครั้ง = ไปฝากเลย (เลขลอย ๆ บนหัว "ไม่ใช่จำนวนชิ้น"
                               --    แต่คือค่า token — Halloween_Candy.lua L424 -> Amounts[Id])
     CANDY_SPOIL_SAFE  = 6,    -- เหลือเวลาน้อยกว่านี้ → เลิกเก็บแล้วรีบไปฝากก่อนเน่า
-    CANDY_MAX_TRAVEL  = 600,  -- ⭐ ไม่บินไปไกลกว่านี้ (studs) กันบินข้ามแมพเพื่อแต้มเดียว
+    --    (r35) ตัด CANDY_MAX_TRAVEL ออก — ไม่จำกัดระยะแล้ว สแกนทั้งแมพ เจอที่ไหนบินไปที่นั่น
     CANDY_FLY_TIME    = 15,   -- ⭐ เวลาบินสูงสุดต่อเที่ยว (วิ) — 8 วิ ไม่พอสำหรับทางไกล
     CANDY_HOVER       = 18,   -- ⭐ ลอย "เหนือ" จุดเก็บ/จุดฝาก — ห้ามลดตัวลงไป (สัตว์จะจมดินติด)
-    CANDY_BUY_EGG     = true, -- 🎃 แต้มครบราคา = ซื้อ Halloween Egg ให้เลย (remote BuyHalloweenEgg)
+    CANDY_BUY_EGG     = false,-- 🎃 ซื้อ Halloween Egg อัตโนมัติ (ปิดไว้ตามคำสั่ง — ไม่เอาซื้อไข่)
+
+    -- ☯️ r41 : ฟาร์ม "หยิน-หยาง" (Yin/Yang Half) อย่างเดียว — ไม่วางที่แท่น ไม่แตะประตู
+    --    ของจริง = HeadlessRitual.Runtime.Yin/Yang.Root.RitualPrompt
+    --    (Action "Collect" · Hold 0.7 วิ · ⭐ เพดานระยะแนวนอน 14 studs)
+    --    ของจะเกิดเฉพาะตอนพิธีทำงาน (Phase "AwaitingHalf") — ยังไม่เกิด = ระบบรอเฉย ๆ
+    YY_ON          = false, -- เริ่ม "ปิด" → กดปุ่ม ☯️ เพื่อเปิด
+    YY_WAIT        = 0.5,   -- หน่วงต่อรอบ (วินาที)
+    YY_COOLDOWN    = 2.3,   -- ⭐ คูลดาวน์หลังยิง 1 ครั้ง (เกมล็อก 2 วิ → เว้น +0.3 กันชน)
+    YY_PICK_RANGE  = 13,    -- ⭐ ยิงเมื่อ "ระยะแนวนอน" ไม่เกินนี้ (ค่าจริง MaxHorizontalActivationDistance = 14)
+    YY_FLY_TIME    = 20,    -- เวลาบินสูงสุดต่อเที่ยว (วิ)
+    YY_HOVER       = 14,    -- ⭐ ลอย "เหนือ" จุดเก็บ — ห้ามลดตัวลงไป (สัตว์จมดินติด)
+    YY_RESCAN      = 2.0,   -- สแกนของจริงใหม่ทุก ๆ กี่วินาที
+
+    -- 🏠 r35 : กลับบ้านแบบใหม่ — วาปข้างบ้าน → หยุด → ดรอป → หยิบกลับ → ลอยเข้าช้า ๆ
+    HOME_APPROACH     = true,  -- ⭐ true = ใช้แบบใหม่ · false = แบบเดิม (วาร์ปลงกลางแปลงทันที)
+    HOME_GAP          = 12,    -- ⭐ ยืนห่างจาก "ขอบแปลง" (studs)
+    HOME_PAUSE        = 0.7,   -- ⏸️ หยุดนิ่งข้างบ้านก่อนดรอป (วิ)
+    HOME_SLOW         = 25,    -- 🐌 ความเร็ว "ลอยเข้าบ้าน" (stud/วิ) — เดิมวาร์ปด้วย FLY_SPEED=1000
+    HOME_IN_TIME      = 10,    -- เวลาบินเข้าสูงสุด (วิ)
+    HOME_PICK_WAIT    = 2.0,   -- ⏱️ รอหยิบกลับสำเร็จก่อนยอมลอยเข้า (วิ)
 }
 
 -- ---------- Remote (ยืนยันจาก ReplicatedStorage_Dump) ----------
@@ -280,6 +310,7 @@ local selectedEggs = {}      -- ลำดับในตาราง = ลำด
 local isFarming   = false
 local isGrabbing  = false
 local CANDY_STOP  = nil      -- 🍬 mutual exclusion : ฟาร์มไข่กับฟาร์มแคนดี้ "เลือกได้ทีละระบบ"
+local YY_STOP     = nil      -- ☯️ mutual exclusion : หยิน-หยาง กับ แคนดี้/ฟาร์มไข่ เลือกได้ทีละระบบ
 local homeCFrame  = nil
 local dipEnabled  = true     -- 🌋 สวิตช์ดรอปลาวา (ค่าเริ่มต้น "เปิด" ตั้งแต่โหลด — r25 ตามคำสั่ง)
 local dipRunning  = false    -- กันรันซ้อนระหว่างรอบดรอป
@@ -552,7 +583,7 @@ local actions4 = mk("Frame", {
 mk("UIListLayout", { Padding = UDim.new(0, 7), FillDirection = Enum.FillDirection.Horizontal }, actions4)
 
 local gfxBtn = mk("TextButton", {
-    Size = UDim2.new(1, -148, 1, 0), BackgroundColor3 = C.Off,
+    Size = UDim2.new(1, -242, 1, 0), BackgroundColor3 = C.Off,
     BorderSizePixel = 0, AutoButtonColor = true, Text = "🎮 ภาพกาก: ปิด",
     TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 11,
     TextTruncate = Enum.TextTruncate.AtEnd,
@@ -841,6 +872,22 @@ local function logLine(msg)
     while #logLines > 10 do table.remove(logLines, 1) end   -- กล่องล็อกสูง 120px → อ่านได้ ~10 บรรทัด
     U.log = table.concat(logLines, "\n")
 end
+
+-- 🥚 จับ "คำตอบจากเซิร์ฟเวอร์" ของ EggPickup — เหตุผลจริงที่เซิร์ฟรับ/ปฏิเสธ
+--    ของจริงตอบกลับ 3 แบบ : "Refused" / "BasketFull" / "PickedUp"
+--    (EggSpawning.Client L765 -> OnClientEvent)
+--    ⭐ ไม่มีบรรทัดนี้ = มองไม่เห็นเลยว่าเซิร์ฟปฏิเสธเพราะอะไร (ยิงแล้วเงียบ)
+pcall(function()
+    if eggPickupRemote and eggPickupRemote.OnClientEvent then
+        eggPickupRemote.OnClientEvent:Connect(function(status, reason, nm)
+            local bad = (status == "Refused" or status == "BasketFull")
+            logLine((bad and "[!] 🥚 " or "[🥚] ") .. "เซิร์ฟตอบ EggPickup = " .. tostring(status)
+                .. (reason ~= nil and (" : " .. tostring(reason)) or "")
+                .. (nm ~= nil and (" [" .. tostring(nm) .. "]") or ""))
+        end)
+    end
+end)
+
 local function setStatus(msg, color)
     U.statusMsg = msg
     U.statusColor = color or C.Sub
@@ -2537,11 +2584,222 @@ local function grabAndReturn(egg)
 
     -- ⚡ วาร์ปกลับบ้าน (ถือไข่อยู่) — ⛔ ไม่ยิง TeleportToPlot
     setStatus("กลับแปลงพร้อม " .. eggName, C.Amber)
-    if not homeCFrame then -- เผื่อตอนกดเริ่มหาแปลงไม่เจอ
-        local okH, cfH = pcall(getPlotCFrame)
-        if okH and cfH then homeCFrame = cfH end
-    end
-    if homeCFrame then
+
+    -- 🔄 "หาแปลงใหม่ทุกรอบ" — ค่า cache เก่าใช้ไม่ได้ถ้าแปลงสุ่มจุด/ย้ายระหว่างทาง
+    --    (เดิมจำค่าตอนกดเริ่มครั้งเดียว → แปลงเปลี่ยน = วาปไปจุดเก่า ตัวหาย)
+    local freshCF = nil
+    local okFresh, cfFresh = pcall(getPlotCFrame)
+    if okFresh and cfFresh then freshCF = cfFresh end
+    if freshCF then homeCFrame = freshCF end
+
+    if CFG.HOME_APPROACH and homeCFrame then
+        ---------------------------------------------------------------
+        -- 🏠 แบบใหม่ : วาป "ข้างบ้าน" → หยุด → ดรอป → หยิบกลับ → ลอยเข้าช้า ๆ
+        ---------------------------------------------------------------
+        -- หาทิศ "ข้างบ้าน" ที่โล่ง : ยิง raycast 4 ทิศในท้องถิ่นของแปลง
+        --   · แปลงหมุนแค่ไหนก็ตาม "ข้างบ้าน" = ทิศในท้องถิ่นเดิม → คงที่เสมอ
+        --   · ไม่นับแปลงเรา/ตัวเรา เป็นสิ่งกีดขวาง (นับเฉพาะบ้านเพื่อน/ภูมิประเทศ)
+        --   · ตัดทิศที่ไม่มีพื้นรองรับออก (กันเลือกข้างที่เป็นหลุม/นอกแมพ)
+        local function homeApproach()
+            local cf = homeCFrame
+            if not cf then return nil end
+
+            local plot = nil
+            pcall(function()
+                local plots = workspace:FindFirstChild("Plots")
+                if not plots then return end
+                for _, p in ipairs(plots:GetChildren()) do
+                    if p:IsA("Model") then
+                        local data = p:FindFirstChild("Data")
+                        local owner = data and data:FindFirstChild("Owner")
+                        local v = owner and owner.Value
+                        if v == player or (v ~= nil and tostring(v) == player.Name) then
+                            plot = p
+                            return
+                        end
+                    end
+                end
+            end)
+
+            local center = cf.Position
+            local dirs  = { cf.RightVector, -cf.RightVector, cf.LookVector, -cf.LookVector }
+            local ch    = player.Character
+            local noMe  = ch and { ch } or {}
+            local best, bestClear = dirs[1], -1
+
+            for _, d in ipairs(dirs) do
+                -- (ก1) โล่งแค่ไหน — ไม่นับแปลงเรา (ให้เพื่อน/ภูมิประเทศเป็นตัวบอกว่า "มีอะไรอยู่")
+                local excl = {}
+                if noMe[1] then table.insert(excl, noMe[1]) end
+                if plot then table.insert(excl, plot) end
+                local pr = RaycastParams.new()
+                pr.FilterType = Enum.RaycastFilterType.Exclude
+                pr.FilterDescendantsInstances = excl
+                local o    = center + Vector3.new(0, 5, 0)
+                local hit  = workspace:Raycast(o, d * 90, pr)
+                local clear = hit and (hit.Position - o).Magnitude or 90
+
+                -- (ก2) มีพื้นรองรับไหม (แปลงตัวเองเป็นพื้นได้ → นับด้วย)
+                local pg = RaycastParams.new()
+                pg.FilterType = Enum.RaycastFilterType.Exclude
+                pg.FilterDescendantsInstances = noMe
+                local probe = workspace:Raycast(
+                    center + d * (CFG.HOME_GAP + 6) + Vector3.new(0, 30, 0),
+                    Vector3.new(0, -90, 0), pg)
+                if not probe then clear = -1 end   -- หลุม/นอกแมพ → ตัดทิศนี้ทิ้ง
+
+                if clear > bestClear then best, bestClear = d, clear end
+            end
+
+            -- ระยะห่างจาก "ขอบแปลง" จริง (ใช้ bounding box ถ้าหาได้)
+            local gap = CFG.HOME_GAP
+            if plot then
+                pcall(function()
+                    local _, size = plot:GetBoundingBox()
+                    gap = math.max(size.X, size.Z) * 0.5 + CFG.HOME_GAP
+                end)
+            end
+
+            local pos  = center + best * gap
+            local look = Vector3.new(center.X, pos.Y, center.Z)
+            if (pos - look).Magnitude < 1 then return cf end   -- กัน CFrame.lookAt ฟ้อง
+            return CFrame.lookAt(pos, look)
+        end
+
+        local approachCF = homeApproach() or homeCFrame
+        local h1 = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+        local dHome = h1 and math.floor((approachCF.Position - h1.Position).Magnitude) or -1
+        local okTP = teleportTo(approachCF)
+        logLine("[>] กลับแปลง(ข้างบ้าน) " .. dHome .. " studs"
+            .. (okTP and "" or " ล้มเหลว") .. " · ยืนห่างขอบ " .. CFG.HOME_GAP .. " studs")
+        task.wait(CFG.HOME_PAUSE)      -- ⏸️ หยุดนิ่งตรงนี้ก่อน
+
+        -- 🧺 (ขั้นที่ 1) ดรอปไข่ข้างบ้าน — มีแค่ 2 ตัวนี้ ⛔ ห้ามเติม TeleportToPlot
+        local cntBefore = countOwnedEggs(eggName)     -- 🧮 char + Backpack
+        pcall(function()
+            if basketDropRemote then basketDropRemote:FireServer() end
+            if eggPlacedRemote then eggPlacedRemote:FireServer() end
+        end)
+        -- ⏱️ รอจน "หลุดมือจริง" (ไม่ใช่รอเวลาคงที่) — เซิร์ฟอาจหน่วงกว่า 0.35 วิ
+        local tDrop = os.clock()
+        while countOwnedEggs(eggName) > 0 and os.clock() - tDrop < 1.5 do task.wait(0.1) end
+        local cntAfter = countOwnedEggs(eggName)
+
+        if cntAfter >= cntBefore then
+            logLine("[!] ดรอปข้างบ้านไม่ติด -> ยังถือ " .. cntAfter
+                .. " ใบ -> ข้ามขั้นหยิบกลับ")
+        else
+            ----------------------------------------------------------
+            -- 🎯 (ขั้นที่ 2a) หาตำแหน่งไข่ "จริง" หลังดรอป
+            --    ⚠️ เซิร์ฟอาจวางไข่ไว้กลางแปลง (ไม่ใช่ที่เรายืน) → ถ้าไกล
+            --      เซิร์ฟจะ "Refused" เพราะเกินระยะ → ต้องเข้าใกล้ก่อน
+            ----------------------------------------------------------
+            local function locateDroppedEgg()
+                local pos = nil
+                -- 1) instance เดิมยังอยู่ (ถูก re-parent ไม่ถูกทำลาย)
+                pcall(function()
+                    if egg and egg.Parent and egg:IsDescendantOf(workspace) then
+                        local ch = player.Character
+                        if not (ch and egg:IsDescendantOf(ch)) then
+                            local ep = eggPart(egg)
+                            if ep then pos = ep.Position end
+                        end
+                    end
+                end)
+                -- 2) แปลงเรา -> Eggs/<ชื่อ>
+                if not pos then
+                    pcall(function()
+                        local plots = workspace:FindFirstChild("Plots")
+                        if not plots then return end
+                        for _, p in ipairs(plots:GetChildren()) do
+                            local data = p:FindFirstChild("Data")
+                            local owner = data and data:FindFirstChild("Owner")
+                            local v = owner and owner.Value
+                            if v == player or (v ~= nil and tostring(v) == player.Name) then
+                                local eggs = p:FindFirstChild("Eggs")
+                                local e = eggs and eggs:FindFirstChild(eggName)
+                                if e then
+                                    local ep = eggPart(e)
+                                    pos = ep and ep.Position or e:GetPivot().Position
+                                    return
+                                end
+                            end
+                        end
+                    end)
+                end
+                -- 3) fallback : สแกนทั้งแมพ (ข้ามตัวที่ติดตัวเรา)
+                if not pos then
+                    pcall(function()
+                        local ch = player.Character
+                        for _, o in ipairs(workspace:GetDescendants()) do
+                            if o.Name == eggName and (o:IsA("Model") or o:IsA("Tool")) then
+                                if not (ch and o:IsDescendantOf(ch)) then
+                                    local ep = eggPart(o)
+                                    pos = ep and ep.Position or o:GetPivot().Position
+                                    return
+                                end
+                            end
+                        end
+                    end)
+                end
+                return pos
+            end
+
+            local ePos = locateDroppedEgg()
+            local h2 = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+            if ePos and h2 then
+                local gap = (ePos - h2.Position).Magnitude
+                if gap > 18 then
+                    logLine("[→] ไข่ตกที่ห่าง " .. math.floor(gap)
+                        .. " studs -> เข้าใกล้ก่อนหยิบ (ไกล = เซิร์ฟปฏิเสธ)")
+                    teleportTo(CFrame.new(ePos + Vector3.new(0, 4, 10)))
+                    task.wait(0.35)
+                else
+                    logLine("[→] ไข่อยู่ห่าง " .. math.floor(gap) .. " studs (ใกล้พอแล้ว)")
+                end
+            else
+                logLine("[?] หาตำแหน่งไข่หลังดรอปไม่เจอ -> ยิงหยิบที่ตำแหน่งปัจจุบัน")
+            end
+
+            -- 🔄 (ขั้นที่ 2b) หยิบกลับ
+            --    ⭐ ยิงด้วย "ชื่อ" ไม่ใช่ instance — ของจริงส่ง `EggPickup:FireServer(v194.Name)`
+            --      (Dump_RemoteCalls L624 ยืนยัน; ส่ง instance = เซิร์ฟเงียบ ไม่เก็บ)
+            local tBack, gotBack = os.clock(), false
+            while os.clock() - tBack < CFG.HOME_PICK_WAIT do
+                pcall(function()
+                    if eggPickupRemote then eggPickupRemote:FireServer(eggName) end
+                end)
+                pcall(function()   -- เผื่อ prompt/clickdetector ยังอยู่บน instance เดิม
+                    if egg and egg.Parent then
+                        local prompt = egg:FindFirstChildWhichIsA("ProximityPrompt", true)
+                        if prompt then
+                            prompt.HoldDuration = 0
+                            if fireproximityprompt then fireproximityprompt(prompt) end
+                        end
+                        local cd = egg:FindFirstChildWhichIsA("ClickDetector", true)
+                        if cd and fireclickdetector then fireclickdetector(cd) end
+                    end
+                end)
+                task.wait(0.3)
+                -- ⭐ ตรวจด้วย countOwnedEggs (นับทั้งมือ + Backpack)
+                --    heldEggName() มีแค่ในมือ → ถ้าเกมส่งเข้า Backpack จะ "มองไม่เห็น"
+                --    แล้วดันไปสรุปว่าหยิบไม่สำเร็จ (ทั้งที่จริงได้แล้ว)
+                if countOwnedEggs(eggName) > 0 then gotBack = true break end
+            end
+            logLine(gotBack and ("[OK] หยิบกลับ " .. eggName .. " แล้ว")
+                or ("[!] หยิบกลับ " .. eggName .. " ไม่สำเร็จ (ภายใน "
+                    .. CFG.HOME_PICK_WAIT .. " วิ) -> ลอยเข้าต่อ"))
+        end
+
+        -- 🐌 (ขั้นที่ 3) ลอยเข้าบ้าน "ช้า ๆ" — แทนการวาร์ปลงพรวดเดียว
+        --    flyTo เปิด noclip ระหว่างทาง (ผ่านประตู/ผนังได้) แล้วปิดให้เองตอนจบ
+        logLine("[🐌] ลอยเข้าบ้านช้า ๆ (เร็ว " .. CFG.HOME_SLOW .. " stud/วิ · สูงสุด "
+            .. CFG.HOME_IN_TIME .. " วิ)")
+        flyTo(homeCFrame.Position, CFG.HOME_SLOW, CFG.HOME_IN_TIME)
+        task.wait(0.2)
+
+    elseif homeCFrame then
+        -- 📦 แบบเดิม (HOME_APPROACH = false) : วาร์ปลงกลางแปลงทันที
         local h1 = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
         local dHome = h1 and math.floor((homeCFrame.Position - h1.Position).Magnitude) or -1
         local okTP = teleportTo(homeCFrame)
@@ -3234,6 +3492,7 @@ startBtn.Activated:Connect(function()
 
     isFarming = true
     if CANDY_STOP then CANDY_STOP("ฟาร์มไข่") end   -- 🍬 mutual exclusion
+    if YY_STOP then YY_STOP("ฟาร์มไข่") end         -- ☯️ mutual exclusion
     onceNoTargetAt = 0
     startBtn.Text = "⏹ หยุดฟาร์ม"
     startBtn.BackgroundColor3 = C.Red
@@ -3693,7 +3952,8 @@ logLine("[OK] EGG LITE พร้อม - แตะ = ใบเดียว / ก
 print("[EGG LITE r26] loaded - anti-AFK from 2.lua (Idled->VirtualUser anti-kick) + lava dip ON by default + rejoin (Roblox.txt style) + midnight violet UI + notify 60s + ESP 2-part + auto/warp buttons + gfx 3-level + file log")
 
 -- ============================================================
--- 🍬 r27 : ระบบเก็บแคนดี้ฮาโลวีน (Halloween Candy)
+-- 🍬 r35 : ระบบเก็บแคนดี้ฮาโลวีน (Halloween Candy)
+--    • r35 : ตัด CANDY_MAX_TRAVEL ออก — สแกนทั้งแมพ ไม่จำกัดระยะ + งบเวลาบินปรับตามระยะ
 --    • ตรวจจับด้วย "แท็กจริง" ของเกม : CollectionService:GetTagged("HalloweenCandySpawn")
 --    • ยิงด้วย fireproximityprompt → ให้ handler ของเกมเป็นคนยิง CollectCandy:FireServer(Id)
 --      (ผ่าน guard ครบทุกชั้น = ไม่ต้องยิง remote เอง → ไม่เสี่ยงโดนเช็ค type)
@@ -3943,10 +4203,10 @@ print("[EGG LITE r26] loaded - anti-AFK from 2.lua (Idled->VirtualUser anti-kick
     end
 
     -- เลือกแคนดี้เป้าหมาย
-    --    ⭐ เกณฑ์เรียง : ① อยู่ใน CANDY_MAX_TRAVEL ก่อน
-    --                    ② "แต้มสูงสุดก่อน" (ทั้งตัวที่เกมบอกพร้อม และไม่พร้อม)
-    --                    ③ เสมอกัน = เกมบอกพร้อมก่อน (attribute=true)
-    --                    ④ เสมอกันอีก = ใกล้สุด
+    --    ⭐ เกณฑ์เรียง : ① "แต้มสูงสุดก่อน" (ทั้งตัวที่เกมบอกพร้อม และไม่พร้อม)
+    --                    ② เสมอกัน = เกมบอกพร้อมก่อน (attribute=true)
+    --                    ③ เสมอกันอีก = ใกล้สุด
+    --    (r35) ไม่ตัดตัวที่ไกลเกินอีกแล้ว — สแกนได้ทั้งแมพ
     --    ⚠️ ห้ามเอา attribute=true เป็น "เงื่อนไขแรก" เด็ดขาด
     --       เพราะสูตรจริงของเกม (Halloween_Candy.lua L436) คือ
     --         CandyPromptAvailable = มีของจริง AND InHalloweenZone
@@ -3954,11 +4214,11 @@ print("[EGG LITE r26] loaded - anti-AFK from 2.lua (Idled->VirtualUser anti-kick
     --       ซึ่งมักเป็น false ตลอด (เคยเห็น "พร้อม 0/42")
     --       -> ถ้าเรียงตามมันก่อน ชุดที่เลือกจะ "ว่าง" เสมอ แล้วตกไปใช้
     --          fallback = ตัวใกล้สุด = "เก็บมั่ว" ไม่สนแต้มเลย
-    --    คืน (spawn, pos, ระยะ, แต้ม, พร้อม?, พร้อม, ไม่พร้อม, ทั้งหมด, ไกลเกิน, แต้มสูงสุด)
+    --    คืน (spawn, pos, ระยะ, แต้ม, พร้อม?, พร้อม, ไม่พร้อม, ทั้งหมด, แต้มสูงสุด)
     local function nearestCandy(from)
         local bSpawn, bPos, bD, bVal, bReady = nil, nil, math.huge, -1, false
         local nSpawn, nPos, nD               = nil, nil, math.huge
-        local farCnt, readyCnt, notReady, total, maxValue = 0, 0, 0, 0, 0
+        local readyCnt, notReady, total, maxValue = 0, 0, 0, 0
         for _, o in ipairs(tagged(CANDY_TAG)) do
             if not isGhost(o) then                -- 🧹 ตัด "ตัวผี" (โดนเก็บไปแล้ว) ออกก่อน
                 local p = posOf(o)
@@ -3967,28 +4227,24 @@ print("[EGG LITE r26] loaded - anti-AFK from 2.lua (Idled->VirtualUser anti-kick
                     local d = (p - from).Magnitude
                     local v = candyValue(o)       -- 💰 อ่านค่าแต้มจากป้าย "🍬 N"
                     if v > maxValue then maxValue = v end
-                    if d > CFG.CANDY_MAX_TRAVEL then
-                        farCnt = farCnt + 1       -- ไกลเกินไป -> ไม่บินไปเพื่อแต้มเดียว
-                    else
-                        local pr = promptOf(o)
-                        local ready = (pr ~= nil and pr:GetAttribute("CandyPromptAvailable") == true)
-                        if ready then readyCnt = readyCnt + 1
-                        else notReady = notReady + 1 end
-                        if d < nD then nSpawn, nPos, nD = o, p, d end
-                        -- ⭐ เรียง : แต้มสูงสุด -> พร้อม -> ใกล้สุด
-                        local better
-                        if v ~= bVal then better = v > bVal
-                        elseif ready ~= bReady then better = ready
-                        else better = d < bD end
-                        if better then bSpawn, bPos, bD, bVal, bReady = o, p, d, v, ready end
-                    end
+                    local pr = promptOf(o)
+                    local ready = (pr ~= nil and pr:GetAttribute("CandyPromptAvailable") == true)
+                    if ready then readyCnt = readyCnt + 1
+                    else notReady = notReady + 1 end
+                    if d < nD then nSpawn, nPos, nD = o, p, d end
+                    -- ⭐ เรียง : แต้มสูงสุด -> พร้อม -> ใกล้สุด
+                    local better
+                    if v ~= bVal then better = v > bVal
+                    elseif ready ~= bReady then better = ready
+                    else better = d < bD end
+                    if better then bSpawn, bPos, bD, bVal, bReady = o, p, d, v, ready end
                 end
             end
         end
         if bSpawn then
-            return bSpawn, bPos, bD, bVal, bReady, readyCnt, notReady, total, farCnt, maxValue
+            return bSpawn, bPos, bD, bVal, bReady, readyCnt, notReady, total, maxValue
         end
-        return nSpawn, nPos, nD, 0, false, readyCnt, notReady, total, farCnt, maxValue
+        return nSpawn, nPos, nD, 0, false, readyCnt, notReady, total, maxValue
     end
 
     -- ยิง 1 ครั้ง -> คืน (สำเร็จ?, โค้ด, รายละเอียด)
@@ -4053,8 +4309,9 @@ print("[EGG LITE r26] loaded - anti-AFK from 2.lua (Idled->VirtualUser anti-kick
                 logLine("[🍬] ไปฝาก " .. car .. " แต้ม (ห่าง " .. math.floor(dd) .. " studs"
                     .. (nearSpoil and " · ใกล้เน่า!" or "") .. ")")
                 -- ⭐ ขั้นแรก : ลอย "เหนือ" จุดฝาก — ห้ามลดตัวลงไป (สัตว์จะจมดินแล้วติด)
+                --    งบเวลาปรับตามระยะ (กันโดนตัดกลางทางตอนจุดฝากไกล)
                 local hi = hover(dp)
-                flyTo(hi, CFG.FLY_SPEED, CFG.CANDY_FLY_TIME)
+                flyTo(hi, CFG.FLY_SPEED, math.max(CFG.CANDY_FLY_TIME, dd / CFG.FLY_SPEED + 3))
                 pcall(function() teleportTo(CFrame.new(hi)) end)
                 task.wait(1.2)
                 local after = carriedCandy()
@@ -4085,16 +4342,12 @@ print("[EGG LITE r26] loaded - anti-AFK from 2.lua (Idled->VirtualUser anti-kick
         end
 
         -- ── B) เก็บแคนดี้ ──────────────────────────────────
-        local spawn, pos, dist, val, isReady, readyCnt, notReady, total, farCnt, maxV =
+        local spawn, pos, dist, val, isReady, readyCnt, notReady, total, maxV =
             nearestCandy(h.Position)
         if not spawn then
             if total == 0 and os.clock() - noReadyLogAt > 15 then
                 noReadyLogAt = os.clock()
                 logLine("[🍬] ไม่เจอแคนดี้ในแมพเลย (แท็ก HalloweenCandySpawn = 0)")
-            elseif farCnt > 0 and os.clock() - noReadyLogAt > 15 then
-                noReadyLogAt = os.clock()
-                logLine("[🍬] มีแคนดี้ " .. farCnt .. " ลูก แต่ไกลเกิน "
-                    .. CFG.CANDY_MAX_TRAVEL .. " studs -> ข้าม (กันบินข้ามแมพเพื่อแต้มเดียว)")
             end
             return
         end
@@ -4109,7 +4362,9 @@ print("[EGG LITE r26] loaded - anti-AFK from 2.lua (Idled->VirtualUser anti-kick
                         .. "/" .. total .. " · แต้มสูงสุดในแมพ " .. maxV .. ")")
                 end
                 setStatus("🍬 บินไปเก็บ " .. val .. " แต้ม", C.Amber)
-                flyTo(hover(pos), CFG.FLY_SPEED, CFG.CANDY_FLY_TIME)  -- 🎈 ลอยเหนือ ห้ามลดตัวลงไป
+                -- 🎈 ลอยเหนือ + งบเวลาต่อ hop ปรับตามระยะ (กันโดนตัดกลางทางตอนของไกล)
+                local cBudget = math.max(CFG.CANDY_FLY_TIME, dist / CFG.FLY_SPEED + 3)
+                flyTo(hover(pos), CFG.FLY_SPEED, cBudget)  -- ห้ามลดตัวลงไป
                 -- ถ้าทางไกลบินไม่ทัน บอกไว้ใน log (จะได้รู้ว่าต้องเพิ่ม CANDY_FLY_TIME)
                 local h2 = hrp()
                 if h2 then
@@ -4161,10 +4416,11 @@ print("[EGG LITE r26] loaded - anti-AFK from 2.lua (Idled->VirtualUser anti-kick
         end
         candyEnabled = not candyEnabled
         if candyEnabled then
+            if YY_STOP then YY_STOP("ระบบแคนดี้") end   -- ☯️ mutual exclusion
             candyBtn.BackgroundColor3 = C.Green
             logLine("[🍬] เปิดเก็บแคนดี้ - สแกนทุก " .. CFG.CANDY_WAIT
-                .. " วิ · เก็บแต้มสูงสุดก่อน · บินไกลสุด " .. CFG.CANDY_MAX_TRAVEL
-                .. " studs · ถึงระยะ " .. CFG.CANDY_RANGE .. " = ยิงเลย")
+                .. " วิ · เก็บแต้มสูงสุดก่อน · ⭐ สแกนทั้งแมพ (ไม่จำกัดระยะ) · ถึงระยะ "
+                .. CFG.CANDY_RANGE .. " = ยิงเลย")
             setStatus("แคนดี้ : เปิด", C.Amber)
         else
             candyBtn.BackgroundColor3 = C.Off
@@ -4198,10 +4454,404 @@ print("[EGG LITE r26] loaded - anti-AFK from 2.lua (Idled->VirtualUser anti-kick
         end
     end)
 
-    logLine("[OK] 🍬 r34 ระบบเก็บแคนดี้พร้อม (ปุ่ม 🍬 ท้ายแถบ) - เริ่ม" ..
-        (candyEnabled and "เปิด" or "ปิด") .. " · ⭐ เก็บแต้มสูงสุดก่อน · บินไกลสุด "
-        .. CFG.CANDY_MAX_TRAVEL .. " studs · ⭐ ลอยเหนือ " .. CFG.CANDY_HOVER
+    logLine("[OK] 🍬 r35 ระบบเก็บแคนดี้พร้อม (ปุ่ม 🍬 ท้ายแถบ) - เริ่ม" ..
+        (candyEnabled and "เปิด" or "ปิด") .. " · ⭐ เก็บแต้มสูงสุดก่อน · ⭐ สแกนทั้งแมพ (ไม่จำกัดระยะ) · ⭐ ลอยเหนือ " .. CFG.CANDY_HOVER
         .. " studs ห้ามลดตัวลงไป (กันสัตว์จมดินติด)"
         .. " · 🎃 แต้มครบ " .. eggPrice .. " = บินไปร้านแล้วซื้อ Halloween Egg ให้เลย")
+end)()
+-- ============================================================
+-- ☯️ r43 : ฟาร์ม "หยิน-หยาง" (Yin/Yang Half) + 👁️ ESP — เก็บอย่างเดียวตามคำสั่ง (ไม่วางที่แท่น ไม่แตะประตู)
+--    · ของจริง = HeadlessRitual.Runtime.Yin/Yang.Root.RitualPrompt
+--      (ObjectText "Yin Half"/"Yang Half" · Action "Collect"
+--       Hold 0.7 วิ · MaxActivationDistance 18.6 · ⭐ MaxHorizontalActivationDistance = 14)
+--    · เกิดเฉพาะตอนพิธีทำงาน (Phase "AwaitingHalf") — ยังไม่เกิด = รอเฉย ๆ
+--    • ⭐ ลอย "เหนือ" จุดเก็บ (YY_HOVER) ห้ามลดตัวลงไป — สัตว์ที่ขี่จะจมดินแล้วติด
+--    • ⛔ กติกาเกมที่ข้ามไม่ได้ : ถือไข่อยู่ในตะกร้า = เก็บไม่ได้เลย (IsLocalCarrying)
+-- ⚠️ ทั้งโมดูลต้องอยู่ใน "ฟังก์ชัน" ไม่ใช่ do...end (ลิมิต local register 200 ตัวของ Luau)
+--    ขึ้นต้นด้วย ";" กัน Lua ตีความว่าเป็นการเรียกต่อจาก print(...) บรรทัดก่อนหน้า
+-- ============================================================
+;(function()
+    local yyEnabled  = CFG.YY_ON      -- ☯️ เปิด/ปิดฟาร์มหยิน-หยาง
+    local CS         = game:GetService("CollectionService")
+
+    local got        = 0      -- เก็บหยิน/หยาง ได้กี่ชิ้น
+    local lastFireAt = 0      -- เวลาที่ยิง prompt ล่าสุด
+    local lastScanAt = -999   -- เวลาสแกนแมพครั้งล่าสุด
+    local diagAt     = 0      -- กัน spam ลอจ "ยังไม่เห็นของ"
+    local holdLogAt  = 0      -- กัน spam ลอจ "ถือไข่อยู่"
+    local flyLogAt   = 0      -- กัน spam ลอจตอนบิน (ลูปมันวิ่งทุก 0.5 วิ)
+    local errLogAt   = 0      -- กัน spam ลอจ error
+    local yyEspOn    = false  -- 👁️ ESP หยิน-หยาง เปิด/ปิด
+    local yyEspCount = -1     -- จำนวนป้ายล่าสุด (กัน spam ลอจตอนนับเปลี่ยน)
+    local yyEspTags  = {}     -- { {Part=, Name=} } ป้ายที่วางอยู่ตอนนี้
+    local yyEspBtn   = nil    -- ปุ่ม ☯️ ESP (ประกาศไว้ก่อน เพราะ toggle อยู่ใน IIFE นี้)
+    local yyBtn      = nil    -- ปุ่ม ☯️ (ประกาศไว้ก่อน เพราะ YY_STOP ที่ระบบอื่นเรียกต้องดับปุ่มให้ด้วย)
+    local drops      = {}     -- หยิน/หยางที่ตกอยู่  { obj, prompt, pos }
+
+    local function hrp()
+        local ch = player.Character
+        return ch and ch:FindFirstChild("HumanoidRootPart")
+    end
+
+    -- 🏛️ โมเดลพิธีกรรมทั้งก้อน (นอก streaming = ยังไม่เห็น)
+    local function ritualRoot()
+        return workspace:FindFirstChild("HeadlessRitual")
+    end
+
+    -- 📌 ตามค่า Phase ของพิธีไว้ในล็อก (ของจะเกิดเฉพาะตอนพิธีเปิด = "AwaitingHalf")
+    local lastPhase = nil
+
+    -- ☯️ หยิน/หยางที่ตกพื้น = แคนดี้ที่เกมตั้ง attribute "RitualDrop" = true
+    --    (Halloween_Candy.lua L247 — แคนดี้ธรรมดาทั่วไปจะไม่มี attribute ตัวนี้)
+    local function isRitualDrop(o)
+        local ok, v = pcall(function() return o:GetAttribute("RitualDrop") end)
+        return ok and v == true
+    end
+
+    local function posOf(o)
+        if not o or not o.IsA then return nil end
+        if o:IsA("BasePart") then return o.Position end
+        if o:IsA("Attachment") then return o.WorldPosition end      -- จุดวางอยู่บน Attachment
+        if o:IsA("ProximityPrompt") then return posOf(o.Parent) end -- เดินขึ้นหาจุดจริงของ prompt
+        if o:IsA("Model") then
+            if o.PrimaryPart then return o.PrimaryPart.Position end
+            local ok, cf = pcall(function() return o:GetPivot() end)
+            if ok and cf then return cf.Position end
+        end
+        return nil
+    end
+
+    local function promptOf(o)
+        if not o or not o.IsA then return nil end
+        if o:IsA("ProximityPrompt") then return o end
+        local ok, p = pcall(function() return o:FindFirstChildWhichIsA("ProximityPrompt", true) end)
+        if ok then return p end
+        return nil
+    end
+
+    -- 📡 ความสูงของสัตว์ที่ขี่อยู่ (0 = ไม่ได้ขี่) — ใช้ยกจุดยืนไม่ให้ตัวสัตว์จมดิน
+    local function mountHeight()
+        local char = player.Character
+        if not char then return 0 end
+        local top = 0
+        for _, q in ipairs(char:GetChildren()) do
+            if q:IsA("Model") and q:FindFirstChildOfClass("Humanoid") then
+                local ok, _, sz = pcall(function() return q:GetBoundingBox() end)
+                if ok and typeof(sz) == "Vector3" and sz.Y > top then top = sz.Y end
+            end
+        end
+        return top
+    end
+
+    -- 🎈 จุด "ลอยเหนือ" เป้า — ⭐ ห้ามลดตัวลงไปที่จุดเก็บเด็ดขาด (สัตว์จมดินติด)
+    local function hover(pos)
+        return pos + Vector3.new(0, CFG.YY_HOVER + mountHeight() * 0.5, 0)
+    end
+
+    -- 🔎 ทางสำรอง : บางชิ้นไม่มี attr RitualDrop (เกมคนละชุด prompt — Action "Collect" ไม่ใช่ "Pick Up")
+    --    → จับจาก ObjectText ตรง ๆ "Yin Half"/"Yang Half"/"Yin"/"Yang" (เกมนี้ ObjectText = ชื่อจริง)
+    local function kwMatch(o)
+        local t = string.lower(tostring(o or ""))
+        return t == "yin half" or t == "yang half" or t == "yin" or t == "yang"
+    end
+
+    -- 🔎 สแกนของจริงในแมพ : Yin/Yang Half ที่ตกอยู่
+    local function scanAll()
+        local okL, list = pcall(function() return CS:GetTagged("HalloweenCandySpawn") end)
+        local objs = (okL and type(list) == "table") and list or {}
+        local d, seen = {}, {}
+        for _, o in ipairs(objs) do                 -- แท็กจริงของแคนดี้ทุกลูกในแมพ
+            if isRitualDrop(o) and o.Parent then    -- เฉพาะตัวที่เป็นหยิน/หยาง (RitualDrop)
+                local pr, p = promptOf(o), posOf(o)
+                if pr and p then
+                    seen[pr] = true
+                    table.insert(d, { obj = o, prompt = pr, pos = p })
+                end
+            end
+        end
+        -- ทางสำรอง : prompt ที่ ObjectText ตรงชื่อหยิน/หยาง (กันของชุดที่ไม่มี attr)
+        for _, pr in ipairs(workspace:GetDescendants()) do
+            if pr:IsA("ProximityPrompt") and not seen[pr] and kwMatch(pr.ObjectText) then
+                local p = posOf(pr)
+                if p and pr.Parent and pr.Parent.Parent then
+                    seen[pr] = true
+                    table.insert(d, { obj = pr.Parent, prompt = pr, pos = p })
+                end
+            end
+        end
+        drops  = d
+    end
+
+    -- ⚡ ยิง prompt (hold = เวลากดค้างจริงของ prompt ตัวนั้น) — คืน (สำเร็จ?, error)
+    local function fireHeld(pr, hold)
+        pcall(function() if not pr.Enabled then pr.Enabled = true end end)
+        pcall(function() pr.RequiresLineOfSight = false end)  -- กันกำแพงบัง (guard ฝั่งเซิร์ฟมีของมันเอง)
+        local ok, err = pcall(function() fireproximityprompt(pr, hold + 0.15) end)
+        lastFireAt = os.clock()
+        return ok, err
+    end
+
+    -- หนึ่งรอบงาน : เก็บ Yin/Yang Half ที่ใกล้ที่สุด (ยังไม่มีของ = รอเฉย ๆ)
+    local function yyStep()
+        local h = hrp()
+        if not h then return end
+        local canMove = (not isFarming) and (not isGrabbing)
+
+        if os.clock() - lastScanAt >= CFG.YY_RESCAN then
+            scanAll()
+            lastScanAt = os.clock()
+        end
+
+        -- 📌 บันทึก Phase ของพิธีเวลาเปลี่ยน (กันเดาชื่อ phase ตอนเปิดถ้ำผิด)
+        local okPh, ph = pcall(function()
+            local r = ritualRoot()
+            return r and r:GetAttribute("Phase")
+        end)
+        if okPh and ph ~= nil and ph ~= lastPhase then
+            lastPhase = ph
+            logLine("[☯️] พิธีเปลี่ยน Phase เป็น : " .. tostring(ph))
+        end
+
+        -- ⛔ กติกาเกม : ถือไข่อยู่ในตะกร้า = เก็บ/วางไม่ได้เลย (IsLocalCarrying)
+        local held = heldEggName()
+        if held then
+            if os.clock() - holdLogAt > 15 then
+                holdLogAt = os.clock()
+                logLine("[☯️] ถือ " .. held .. " อยู่ -> เก็บ/วางหยิน-หยางไม่ได้ (กติกาเกม) วางไข่ก่อน")
+                setStatus("หยิน-หยาง : ติดถือไข่", C.Amber)
+            end
+            return
+        end
+
+        -- 🎈 ยังไม่มีของในแมพ (Yin/Yang Half เกิดเฉพาะตอนพิธีทำงาน — Phase "AwaitingHalf")
+        --    → รอของเกิดเฉย ๆ ห้ามบินไปแท่น (ผู้เล่นสั่งแค่ "ฟาร์มหยิน-หยาง")
+        if #drops == 0 then
+            if os.clock() - diagAt > 20 then
+                diagAt = os.clock()
+                logLine("[☯️] ยังไม่มี Yin/Yang Half ในแมพ (Phase: " .. tostring(lastPhase)
+                    .. ") -> รอของเกิด")
+            end
+            return
+        end
+
+        -- ── ① ยังมีหยิน/หยางตกอยู่ → เก็บก่อน (ของใกล้สุด) ─────────────────
+        --    ⭐ ไม่จำกัดระยะเดินทางอีกแล้ว (r43) : ESP เห็นที่ไหน = บินไปเก็บที่นั่น
+        local best, bD = nil, math.huge
+        for _, d in ipairs(drops) do
+            if d.obj.Parent and d.prompt.Parent then
+                local dd = (d.pos - h.Position).Magnitude
+                if dd < bD then best, bD = d, dd end
+            end
+        end
+        if best then
+            -- ⭐ ระยะ "แนวนอน" ต้อง ≤ 14 (MaxHorizontalActivationDistance จริง) — ยิงเมื่อ "อยู่เหนือ" ของแล้ว
+            local flat = math.sqrt((best.pos.X - h.Position.X) ^ 2 + (best.pos.Z - h.Position.Z) ^ 2)
+            if flat > CFG.YY_PICK_RANGE then
+                if canMove then
+                    setStatus("☯️ บินไปเก็บหยิน-หยาง", C.Amber)
+                    if os.clock() - flyLogAt > 10 then
+                        flyLogAt = os.clock()
+                        logLine("[☯️] บินไปเก็บหยิน/หยาง ห่าง " .. math.floor(bD)
+                            .. " studs (ตกอยู่ " .. #drops .. " ชิ้น)")
+                    end
+                    -- 🎈 ลอยเหนือ + งบเวลาต่อ hop ปรับตามระยะ (กันโดนตัดกลางทางตอนของไกล)
+                    local yyBudget = math.max(CFG.YY_FLY_TIME, bD / CFG.FLY_SPEED + 3)
+                    flyTo(hover(best.pos), CFG.FLY_SPEED, yyBudget)
+                elseif os.clock() - flyLogAt > 15 then
+                    flyLogAt = os.clock()
+                    logLine("[☯️] หยิน/หยาง ห่าง " .. math.floor(bD) .. " studs แต่ "
+                        .. (isFarming and "กำลังฟาร์มไข่" or "กำลังเก็บไข่") .. " -> ไม่บิน")
+                end
+                return
+            end
+            -- ⭐ HoldDuration จริงของ prompt หยิน-หยาง = 0.7 วิ (ไม่ใช่ 0.2 เหมือนแคนดี้) → ยืมค่าจาก prompt เอง
+            local hold = tonumber(best.prompt.HoldDuration) or 0.7
+            local ok, err = fireHeld(best.prompt, hold)
+            if ok then
+                got = got + 1
+                setStatus("☯️ เก็บหยิน-หยาง #" .. got, C.Green)
+                logLine("[☯️] เก็บหยิน/หยาง #" .. got .. " ที่ " .. math.floor(bD)
+                    .. " studs (กดค้าง " .. hold .. " วิ · คูลดาวน์เกม 2 วิ)")
+                task.wait(hold + 0.3)
+                if best.obj.Parent and best.prompt.Parent then
+                    pcall(function() best.prompt:InputHoldBegin() end)  -- ยิงแล้วยังอยู่ = กดค้างซ้ำ
+                    task.wait(hold + 0.2)
+                    pcall(function() best.prompt:InputHoldEnd() end)
+                end
+            else
+                logLine("[!] ☯️ ยิง prompt เก็บไม่ได้ : " .. tostring(err))
+            end
+            return
+        end
+    end
+
+    -- ── ปุ่ม ☯️ ในแถบปุ่ม (ท้ายสุดของแถบเดียวกับ 🍬 — LayoutOrder 5) ──
+    yyBtn = mk("TextButton", {
+        Size = UDim2.new(0, 40, 1, 0), BackgroundColor3 = yyEnabled and C.Green or C.Off,
+        BorderSizePixel = 0, AutoButtonColor = true, Text = "☯️",
+        TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 17,
+        LayoutOrder = 5,
+    }, actions4)
+    mk("UICorner", { CornerRadius = UDim.new(0, 10) }, yyBtn)
+
+    yyBtn.Activated:Connect(function()
+        -- ☯️ mutual exclusion : เลือกได้ทีละระบบ (ไม่แย่งตัวบิน)
+        if (not yyEnabled) and isFarming then
+            logLine("[☯️] ฟาร์มไข่กำลังทำงานอยู่ -> กด ⏹ หยุดฟาร์มก่อน แล้วค่อยเปิด ☯️")
+            setStatus("หยิน-หยาง : ต้องหยุดฟาร์มไข่ก่อน", C.Amber)
+            return
+        end
+        yyEnabled = not yyEnabled
+        if yyEnabled then
+            if CANDY_STOP then CANDY_STOP("ระบบหยิน-หยาง") end   -- ☯️ mutual exclusion
+            yyBtn.BackgroundColor3 = C.Green
+            lastScanAt = -999        -- เปิดปุ๊บ = สแกนแมพใหม่ทันที
+            logLine("[☯️] เปิดฟาร์มหยิน-หยาง : เก็บ Yin/Yang Half (ยิงเมื่ออยู่เหนือของ ≤ "
+                .. CFG.YY_PICK_RANGE .. " studs · กดค้างตาม HoldDuration จริง · คูลดาวน์ "
+                .. CFG.YY_COOLDOWN .. " วิ) — เก็บอย่างเดียว ไม่วางที่แท่น")
+            setStatus("หยิน-หยาง : เปิด", C.Amber)
+        else
+            yyBtn.BackgroundColor3 = C.Off
+            logLine("[☯️] ปิดเก็บหยิน-หยาง (รอบนี้เก็บ " .. got .. " ชิ้น)")
+            setStatus("หยิน-หยาง : ปิด")
+        end
+    end)
+
+    -- ให้ระบบอื่น "สั่งปิด" หยิน-หยาง ได้ (mutual exclusion — เลือกได้ทีละระบบ)
+    YY_STOP = function(reason)
+        if not yyEnabled then return end
+        yyEnabled = false
+        yyBtn.BackgroundColor3 = C.Off
+        logLine("[☯️] ปิดเก็บหยิน-หยาง -> เปิด " .. tostring(reason) .. " (สองระบบทำงานพร้อมกันไม่ได้)")
+        setStatus("หยิน-หยาง : ปิด", C.Amber)
+    end
+
+    -- ── 👁️ ESP หยิน-หยาง : ปุ่มอยู่ในแถบ actions4 (ถัดจากปุ่ม ☯️) ──
+    yyEspBtn = mk("TextButton", {
+        Size = UDim2.new(0, 40, 1, 0), BackgroundColor3 = C.Off,
+        BorderSizePixel = 0, AutoButtonColor = true, Text = "☯️",
+        TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBold, TextSize = 17,
+        LayoutOrder = 6,
+    }, actions4)
+    mk("UICorner", { CornerRadius = UDim.new(0, 10) }, yyEspBtn)
+
+    -- 🗂️ โฟลเดอร์ป้ายของตัวเอง (ไม่ปนกับ ESP ไข่ — กันลูปอื่นล้างของพวกเราทิ้ง)
+    pcall(function()
+        local old = workspace:FindFirstChild("YY_ESP_LITE")
+        if old then old:Destroy() end                 -- เก็บกวาดป้ายครั้งก่อน
+    end)
+    local yyEspFolder = Instance.new("Folder")
+    yyEspFolder.Name = "YY_ESP_LITE"
+    yyEspFolder.Parent = workspace
+
+    local function yyEspClear()
+        for _, t in ipairs(yyEspTags) do
+            if t.Tag and t.Tag.Parent then t.Tag:Destroy() end
+        end
+        yyEspTags = {}
+    end
+
+    -- 🏷️ สร้างป้าย 2 บรรทัด (ชื่อ + ระยะ) ผูกกับจุดของ Yin/Yang Half
+    local function yyEspAdd(pos, nm)
+        -- Yin = ขาว · Yang = ดำ (ตามสัญลักษณ์หยิน-หยางในเกม)
+        local col = (string.find(string.lower(nm), "yin", 1, true))
+            and Color3.fromRGB(245, 245, 245) or Color3.fromRGB(20, 20, 20)
+
+        local att = Instance.new("Attachment", workspace.Terrain)
+        att.WorldPosition = pos
+
+        local bg = Instance.new("BillboardGui")
+        bg.Name = "YyTag"; bg.Adornee = att
+        bg.Size = UDim2.new(0, 180, 0, 30); bg.AlwaysOnTop = true
+        bg.LightInfluence = 0; bg.MaxDistance = 1000000; bg.ResetOnSpawn = false
+        bg.StudsOffset = Vector3.new(0, 3, 0); bg.Parent = yyEspFolder
+
+        local nameLbl = Instance.new("TextLabel")
+        nameLbl.Size = UDim2.new(1, 0, 0, 15); nameLbl.BackgroundTransparency = 1
+        nameLbl.TextColor3 = col
+        nameLbl.TextStrokeTransparency = 0.2; nameLbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        nameLbl.Text = "☯️ " .. nm; nameLbl.Font = Enum.Font.GothamBold
+        nameLbl.TextSize = 13; nameLbl.Parent = bg
+
+        local distLbl = Instance.new("TextLabel")
+        distLbl.Size = UDim2.new(1, 0, 0, 15); distLbl.Position = UDim2.new(0, 0, 0, 15)
+        distLbl.BackgroundTransparency = 1; distLbl.TextColor3 = Color3.fromRGB(0, 229, 255)
+        distLbl.TextStrokeTransparency = 0.2; distLbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        distLbl.Text = "📍 ..."; distLbl.Font = Enum.Font.GothamBold
+        distLbl.TextSize = 11; distLbl.Parent = bg
+
+        table.insert(yyEspTags, { Tag = bg, Att = att, Pos = pos, Label = distLbl, D = nil })
+    end
+
+    -- 🔁 ลูป ESP : สแกน Yin/Yang Half ทุก 1 วิ → สร้างป้าย (เขียนระยะเฉพาะตอนค่าเปลี่ยน)
+    task.spawn(function()
+        while true do
+            task.wait(1.0)
+            if not sg.Parent then                       -- ปิดหน้าต่างแล้ว = เก็บกวาดทิ้ง
+                pcall(yyEspClear)
+                pcall(function() yyEspFolder:Destroy() end)
+                break
+            end
+            if yyEspOn then
+                pcall(scanAll)                          -- รีเฟรช drops (ใช้ชุดเดียวกับระบบทดสอบ)
+                yyEspClear()                            -- 🏷️ สร้างป้ายใหม่จาก drops ปัจจุบัน
+                for _, d in ipairs(drops) do
+                    if d.obj and d.obj.Parent and d.prompt and d.prompt.Parent then
+                        yyEspAdd(d.pos, tostring(d.prompt.ObjectText or "Yin/Yang"))
+                    end
+                end
+                local hrp = player.Character
+                    and player.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then                             -- 📍 อัปเดตระยะทุกป้าย
+                    for _, t in ipairs(yyEspTags) do
+                        local dd = math.floor((hrp.Position - t.Pos).Magnitude + 0.5)
+                        if t.D ~= dd then
+                            t.D = dd
+                            t.Label.Text = "📍 " .. dd .. "m"
+                        end
+                    end
+                end
+                local n = #yyEspTags
+                if n ~= yyEspCount then
+                    yyEspCount = n
+                    logLine("[☯️👁️] ESP หยิน-หยาง : " .. n .. " จุดบนจอ"
+                        .. (n == 0 and " (ยังไม่มีของในแมพ)" or ""))
+                end
+            else
+                if #yyEspTags > 0 then yyEspClear() end
+                if yyEspCount ~= -1 then yyEspCount = -1 end
+            end
+        end
+    end)
+
+    yyEspBtn.Activated:Connect(function()
+        yyEspOn = not yyEspOn
+        yyEspBtn.BackgroundColor3 = yyEspOn and Color3.fromRGB(147, 51, 237) or C.Off
+        if yyEspOn then
+            logLine("[☯️👁️] เปิด ESP หยิน-หยาง - ป้าย Yin/Yang Half + ระยะ รีเฟรชทุก 1 วิ")
+        else
+            yyEspClear()
+            logLine("[☯️👁️] ปิด ESP หยิน-หยาง")
+        end
+    end)
+
+    -- ── ลูปหลัก ──
+    task.spawn(function()
+        while true do
+            task.wait(CFG.YY_WAIT)
+            if yyEnabled and os.clock() - lastFireAt >= CFG.YY_COOLDOWN then
+                local ok, err = pcall(yyStep)
+                if not ok and os.clock() - errLogAt > 15 then
+                    errLogAt = os.clock()
+                    logLine("[!] ☯️ ระบบหยิน-หยาง error : " .. tostring(err))
+                end
+            end
+        end
+    end)
+
+    logLine("[OK] ☯️ r43 ฟาร์มหยิน-หยางพร้อม (ปุ่ม ☯️ + ESP ปุ่ม ☯️ ขวาสุด) - เริ่ม"
+        .. (yyEnabled and "เปิด" or "ปิด") .. " · เก็บ Yin/Yang Half อย่างเดียว (ยิงแนวนอน ≤ "
+        .. CFG.YY_PICK_RANGE .. " · กดค้างตาม HoldDuration จริง) · ของยังไม่เกิด = รอเฉย ๆ"
+        .. " · ⭐ ลอยเหนือ " .. CFG.YY_HOVER .. " studs ห้ามลดตัวลงไป (กันสัตว์จมดินติด)")
 end)()
 -- ============================================================
